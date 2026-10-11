@@ -240,7 +240,8 @@ def test_historical_migration_guard_rejects_new_target_before_restore(tmp_path, 
 
 WINDOWS153_SHA = "e5b29c58b44e381924a2dd4bd60f54d01abb9d9c"
 STAGE8_SHA = "2a55082adb89cb8bac7aa7ab8bb61162b53f4c35"
-VERIFY_MODE = "${{ (inputs.resume_source_sha == '" + WINDOWS153_SHA + "' || inputs.resume_source_sha == '" + STAGE8_SHA + "') && 'verify-source' || 'migration' }}"
+WINDOWS155_SHA = "4470c3c7435a9f2de203396587c6f57705a8c9d5"
+VERIFY_MODE = "${{ (inputs.resume_source_sha == '" + WINDOWS153_SHA + "' || inputs.resume_source_sha == '" + STAGE8_SHA + "' || inputs.resume_source_sha == '" + WINDOWS155_SHA + "') && 'verify-source' || 'migration' }}"
 
 
 def run_powershell(tmp_path, script, env):
@@ -553,7 +554,7 @@ def test_exact_windows153_donor_uses_existing_metadata_validator(mutation):
 def stage_preflight_block():
     source = STAGE.read_text()
     start = source.index("Write-OutVar finished false\nWrite-OutVar upload_parts false")
-    end = source.index('\nif ($Arch -eq "arm64") { &', start)
+    end = source.index('\nif ($Arch -eq "arm64") {', start)
     return source[start:end]
 
 
@@ -988,3 +989,235 @@ def test_current_post_prepare_source_proof_is_not_selected_from_historical_repor
     assert "Get-ChildItem" not in block
     assert source.index('tools\\prepare_restored_build.py') < start
     assert start < source.index('$rc = Invoke-Tracked -File $Ninja')
+
+
+@pytest.mark.parametrize("mutation", ["valid", "reverse", "sha", "old-sha", "run", "stage", "attempt", "missing",
+    "extra", "duplicate", "branch", "repository", "profile", "cachefalse", "migration", "mixed-mode"])
+def test_windows155_action_guard_pins_exact_tuple(tmp_path, mutation):
+    guard = yaml.safe_load(ACTION.read_text())["runs"]["steps"][0]["run"]
+    env = dict(SNAPSHOT_MODE="verify-source", SNAPSHOT_SHA=WINDOWS155_SHA, SNAPSHOT_RUN="38136799729",
+               SNAPSHOT_STAGE="2", SNAPSHOT_ATTEMPT="1", SNAPSHOT_ARTIFACT_IDS="11712073707,11712278108",
+               SNAPSHOT_BRANCH="build/chromium155-donors-20261011", SNAPSHOT_REPOSITORY="xiaozhou26/Chromix",
+               CHROMIX_BUILD_PROFILE="native", CHROMIX_USE_UPSTREAM_CACHE="1",
+               CHROMIX_WINDOWS_MIGRATION_REPO="", CHROMIX_WINDOWS_MIGRATION_SHA="", CHROMIX_WINDOWS_MIGRATION_PROFILE="")
+    env.update({"valid": {}, "reverse": {"SNAPSHOT_ARTIFACT_IDS": "11712278108, 11712073707"},
+                "sha": {"SNAPSHOT_SHA": "a" * 40}, "old-sha": {"SNAPSHOT_SHA": WINDOWS153_SHA},
+                "run": {"SNAPSHOT_RUN": "35387701778"}, "stage": {"SNAPSHOT_STAGE": "6"},
+                "attempt": {"SNAPSHOT_ATTEMPT": "2"}, "missing": {"SNAPSHOT_ARTIFACT_IDS": "11712073707"},
+                "extra": {"SNAPSHOT_ARTIFACT_IDS": "11712073707,11712278108,1"},
+                "duplicate": {"SNAPSHOT_ARTIFACT_IDS": "11712073707,11712073707"},
+                "branch": {"SNAPSHOT_BRANCH": "main"}, "repository": {"SNAPSHOT_REPOSITORY": "other/Chromix"},
+                "profile": {"CHROMIX_BUILD_PROFILE": "fast"}, "cachefalse": {"CHROMIX_USE_UPSTREAM_CACHE": "0"},
+                "migration": {"SNAPSHOT_MODE": "migration"},
+                "mixed-mode": {"CHROMIX_WINDOWS_MIGRATION_PROFILE": "windows-152-x64-stage9"}}[mutation])
+    result = run_powershell(tmp_path, "try {\n" + guard + "\n} catch { exit 1 }\nexit 0\n", env)
+    assert result.returncode == (0 if mutation in ("valid", "reverse") else 1), result.stderr
+
+
+def windows155_metadata():
+    from tools import validate_windows_snapshot as validator
+    from tools.tests.test_validate_windows_snapshot import Client
+    from tools import verify_windows_snapshot_source as verifier
+
+    client = Client(run_id=38136799729, stage=2, attempt=1, sha=WINDOWS155_SHA)
+    client.run.update(head_branch="build/chromium155-donors-20261011", event="workflow_dispatch", workflow_id=339967931)
+    for key in ("repository", "head_repository"):
+        client.run[key] = {"id": 1342691290, "full_name": "xiaozhou26/Chromix"}
+    client.jobs[0]["id"] = 114518496535
+    client.jobs[0]["steps"].insert(0, {"name": "Run stage 2", "conclusion": "failure"})
+    for artifact, expected in zip(client.artifacts, verifier.WINDOWS155_ARTIFACTS):
+        artifact.update(expected)
+    options = dict(repository="xiaozhou26/Chromix", run_id=38136799729, stage=2, attempt=1,
+                   expected_sha=WINDOWS155_SHA, expected_artifact_ids=[11712073707, 11712278108],
+                   recovery_branch="build/chromium155-donors-20261011")
+    return client, options, validator
+
+
+@pytest.mark.parametrize("mutation", ["valid", "job", "branch", "main", "event", "workflow-id", "repository-id",
+    "conclusion", "job-conclusion", "run-step", "digest", "size", "nonterminal", "part", "expired", "upload", "sha"])
+def test_windows155_metadata_binding_is_exact_before_checkout_and_download(tmp_path, monkeypatch, mutation):
+    client, options, validator = windows155_metadata()
+    steps = yaml.safe_load(ACTION.read_text())["runs"]["steps"]
+    binding = next(s for s in steps if s.get("name") == "Bind exact Windows155 stage2 checkpoint metadata")
+    assert steps.index(binding) < next(i for i, s in enumerate(steps) if s.get("uses") == "actions/checkout@v4")
+    assert steps.index(binding) < next(i for i, s in enumerate(steps) if s.get("name") == "Download digest-pinned Windows snapshot")
+    if mutation == "job":
+        client.jobs[0]["id"] += 1
+    elif mutation in ("branch", "main", "event", "workflow-id", "conclusion", "nonterminal", "sha"):
+        key, value = {"branch": ("head_branch", "other"), "main": ("head_branch", "main"),
+                      "event": ("event", "push"), "workflow-id": ("workflow_id", 1),
+                      "conclusion": ("conclusion", "success"), "nonterminal": ("status", "in_progress"),
+                      "sha": ("head_sha", "a" * 40)}[mutation]
+        client.run[key] = value
+    elif mutation == "repository-id":
+        client.run["repository"]["id"] += 1
+    elif mutation == "job-conclusion":
+        client.jobs[0]["conclusion"] = "success"
+    elif mutation == "run-step":
+        client.jobs[0]["steps"][0]["conclusion"] = "success"
+    elif mutation == "upload":
+        client.jobs[0]["steps"][-1]["conclusion"] = "failure"
+    else:
+        if mutation != "valid":
+            key, value = {"digest": ("digest", "sha256:" + "b" * 64), "size": ("size_in_bytes", 1),
+                          "part": ("name", "tree-s2-attempt-1-part3"), "expired": ("expired", True)}[mutation]
+            client.artifacts[0][key] = value
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(ROOT))
+    monkeypatch.setenv("RUNNER_TEMP", str(tmp_path))
+    monkeypatch.setenv("GH_TOKEN", "offline-fixture")
+    import validate_windows_snapshot as action_validator
+    monkeypatch.setattr(action_validator, "Client", lambda *args: client)
+
+    def exercise():
+        manifest = validator.validate(client, **options)
+        (tmp_path / "windows-snapshot.json").write_text(json.dumps(manifest))
+        exec(compile(binding["run"], str(ACTION), "exec"), {})
+
+    if mutation == "valid":
+        exercise()
+    else:
+        with pytest.raises((ValueError, RuntimeError)):
+            exercise()
+
+
+@pytest.mark.parametrize("mode", ["success", "failure", "stage6", "old-sha", "wrong-sha", "cachefalse", "fast", "arm64",
+    "not-artifact", "validate-only", "migration", "missing-run", "wrong-job", "bad-sha", "existing-hop",
+    "missing-origin", "missing-download", "old-origin", "old-download", "old-source", "binding-failure"])
+def test_windows155_current_hop_preserves_old_reports_and_fails_closed(tmp_path, mode):
+    from tools import verify_windows_snapshot_source as verifier
+
+    runner_temp = tmp_path / "runner-temp"
+    runner_temp.mkdir()
+    diagnostics = tmp_path / "work/fingerprint-diagnostics"
+    diagnostics.mkdir(parents=True)
+    old = {"windows-snapshot.json": b'{"run_id":35387701778}\r\n',
+           "windows-snapshot-download.json": b'{"run_id":35387701778}\n',
+           "windows-unchanged-source-existing.json": b'{"previous_sha":"historical"}\n',
+           "runtime-failed/acceptance.json": b'{"ci_gate_passed":false}\n'}
+    for name, payload in old.items():
+        path = diagnostics / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+    before = {name: (payload, (diagnostics / name).stat().st_mtime_ns) for name, payload in old.items()}
+    client, options, validator = windows155_metadata()
+    origin = validator.validate(client, **options)
+    download = {**origin, "status": "success", "phase": "complete", "publication": "published"}
+    for kind, data in (("origin", origin), ("download", download)):
+        if mode != "missing-" + kind:
+            name = "windows-snapshot.json" if kind == "origin" else "windows-snapshot-download.json"
+            (runner_temp / name).write_text(json.dumps({"run_id": 35387701778} if mode == "old-" + kind else data))
+    relative = "recovery-hops/d38136799729-a1-s2-j114518496535/c90001-a2-build-2-" + "a" * 40
+    hop = diagnostics / relative
+    if mode == "existing-hop":
+        hop.mkdir(parents=True)
+        (hop / "recovery-hop.json").write_text('{"status":"verified","historical":true}')
+    script = r'''
+$script:events = [Collections.Generic.List[string]]::new()
+function Write-OutVar($key, $value) { $script:events.Add("$key=$value") }
+function python {
+  $script:events.Add('python:' + ($args -join ' '))
+  if ($args -contains '-c') {
+    if ($env:TEST_MODE -eq 'binding-failure') { $global:LASTEXITCODE = 1; return }
+    & $env:TEST_PYTHON @args
+    $global:LASTEXITCODE = $LASTEXITCODE
+  } else {
+    $report = $args[[array]::IndexOf($args, '--report') + 1]
+    $proof = @{
+      status='verified'; operation='windows-unchanged-source'; profile='windows-155-x64-stage2'; changed_files=@()
+      previous_sha='4470c3c7435a9f2de203396587c6f57705a8c9d5'; target_sha=$env:GITHUB_SHA
+      run=@{GITHUB_RUN_ID=$env:GITHUB_RUN_ID; GITHUB_RUN_ATTEMPT=$env:GITHUB_RUN_ATTEMPT; GITHUB_JOB=$env:GITHUB_JOB; GITHUB_SHA=$env:GITHUB_SHA}
+    }
+    if ($env:TEST_MODE -eq 'old-source') { $proof.previous_sha = 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' }
+    $proof | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $report
+    $global:LASTEXITCODE = $(if ($env:TEST_MODE -eq 'failure') { 1 } else { 0 })
+  }
+}
+$WorkDir = Join-Path $env:TEST_ROOT 'work'
+$Repo = $env:TEST_REPO
+$FromArtifact = $env:TEST_MODE -ne 'not-artifact'
+$StageIndex = $(if ($env:TEST_MODE -eq 'stage6') { 6 } else { 2 })
+$Arch = $(if ($env:TEST_MODE -eq 'arm64') { 'arm64' } else { 'x64' })
+$BuildProfile = $(if ($env:TEST_MODE -eq 'fast') { 'fast' } else { 'native' })
+$ValidateOnly = $env:TEST_MODE -eq 'validate-only'
+$RequireUpstreamCache = $env:TEST_MODE -ne 'cachefalse'
+$failed = $false
+try {
+''' + verify_source_block() + r'''
+} catch { $failed = $true }
+[pscustomobject]@{failed=$failed; events=@($script:events); cleared=(-not $env:CHROMIX_WINDOWS_VERIFY_SOURCE_REPO -and -not $env:CHROMIX_WINDOWS_VERIFY_SOURCE_SHA)} | ConvertTo-Json -Compress
+'''
+    env = dict(TEST_ROOT=str(tmp_path), TEST_REPO=str(ROOT), TEST_MODE=mode, TEST_PYTHON=sys.executable,
+               RUNNER_TEMP=str(runner_temp), GITHUB_RUN_ID="90001", GITHUB_RUN_ATTEMPT="2", GITHUB_JOB="build-2",
+               GITHUB_SHA="a" * 40, CHROMIX_WINDOWS_VERIFY_SOURCE_REPO="previous", CHROMIX_WINDOWS_VERIFY_SOURCE_SHA=WINDOWS155_SHA,
+               CHROMIX_WINDOWS_MIGRATION_REPO="", CHROMIX_WINDOWS_MIGRATION_SHA="", CHROMIX_WINDOWS_MIGRATION_PROFILE="")
+    env.update({"old-sha": {"CHROMIX_WINDOWS_VERIFY_SOURCE_SHA": WINDOWS153_SHA},
+                "wrong-sha": {"CHROMIX_WINDOWS_VERIFY_SOURCE_SHA": "b" * 40},
+                "missing-run": {"GITHUB_RUN_ID": ""}, "wrong-job": {"GITHUB_JOB": "build-6"},
+                "bad-sha": {"GITHUB_SHA": "../old"}, "migration": {"CHROMIX_WINDOWS_MIGRATION_PROFILE": "legacy"}}.get(mode, {}))
+    result = run_powershell(tmp_path, script, env)
+    assert result.returncode == 0, result.stderr
+    state = json.loads(result.stdout.strip().splitlines()[-1])
+    assert state["failed"] is (mode != "success"), result.stdout + result.stderr
+    assert state["events"][0] == "snapshot_safe=false"
+    assert ("snapshot_safe=true" in state["events"]) is (mode == "success")
+    assert state["cleared"] is (mode == "success")
+    for name, expected in before.items():
+        path = diagnostics / name
+        assert (path.read_bytes(), path.stat().st_mtime_ns) == expected
+    if mode == "success":
+        assert "recovery_report_dir=" + relative in state["events"]
+        proof = json.loads((hop / "recovery-hop.json").read_bytes())
+        assert proof["donor"] == verifier.WINDOWS155_DONOR
+        assert proof["consumer"] == {key: env[key] for key in ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_JOB", "GITHUB_SHA")}
+        assert proof["runtime_acceptance"] == "runtime/acceptance.json"
+        assert proof["source_verification"] == "source-verification.json"
+        for name in ("windows-snapshot.json", "windows-snapshot-download.json"):
+            assert (hop / name).read_bytes() == (runner_temp / name).read_bytes()
+    elif mode == "existing-hop":
+        assert (hop / "recovery-hop.json").read_text() == '{"status":"verified","historical":true}'
+    else:
+        assert not (hop / "recovery-hop.json").exists()
+
+
+
+def test_windows155_workflow_routes_only_selected_build2_and_keeps_following_checks():
+    workflow = yaml.safe_load(WORKFLOW.read_text())
+    for index in range(1, 13):
+        steps = workflow["jobs"][f"build-{index}"]["steps"]
+        guard = next(step for step in steps if step.get("name") == "Check explicit snapshot migration inputs")
+        restore = next(step for step in steps if step.get("uses") == "./.github/actions/restore-windows-snapshot")
+        for value in (WINDOWS155_SHA, "155.0.8059.39", "38136799729", "37831345909",
+                      "11712073707,11712278108", "$env:RESUME_STAGE -cne '2'", "$env:RESUME_TREE_STAGE -cne '2'"):
+            assert value in guard["run"]
+        assert restore["with"]["mode"] == VERIFY_MODE
+        assert "build/chromium155-donors-20261011" in restore["with"]["recovery-branch"]
+        assert "github.job == format('build-{0}', inputs.resume_stage)" in restore["if"]
+        if index > 1:
+            normal = next(step for step in steps if step.get("name") == "Download tree from previous stage")
+            assert normal["if"] == "${{ inputs.resume_run_id == '' || inputs.resume_stage != '" + str(index) + "' }}"
+    source = STAGE.read_text()
+    assert source.index("verify_windows_snapshot_source.py") < source.index("tools\\install_windows_metagen_bindings.py")
+    assert 'Remove-Item Env:CHROMIX_WINDOWS_VERIFY_SOURCE_REPO, Env:CHROMIX_WINDOWS_VERIFY_SOURCE_SHA' in source
+    assert 'throw "required upstream cache: restore receipt missing;' in source
+    assert 'tools\\verify_patch_stack.py' in source
+
+
+@pytest.mark.parametrize("mutation", ["valid", "run", "attempt", "consumer-stage", "tree-stage", "version",
+    "artifact", "upstream", "cold", "fast"])
+def test_windows155_workflow_input_guard_executes(tmp_path, mutation):
+    build = tmp_path / "build/windows"
+    build.mkdir(parents=True)
+    (build / "read-platform-pins.ps1").write_text("param($Repo)\n@{ ChromiumVersion = $env:TEST_VERSION }\n")
+    steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["build-2"]["steps"]
+    guard = next(step for step in steps if step.get("name") == "Check explicit snapshot migration inputs")["run"]
+    env = dict(GITHUB_WORKSPACE=str(tmp_path), TEST_VERSION="155.0.8059.39", RESUME_SOURCE_SHA=WINDOWS155_SHA,
+               RESUME_RUN_ID="38136799729", RESUME_STAGE="2", RESUME_TREE_STAGE="2", RESUME_ATTEMPT="1",
+               RESUME_ARTIFACT_IDS="11712073707,11712278108", CHROMIX_BUILD_PROFILE="native",
+               USE_UPSTREAM_CACHE="true", UPSTREAM_RUN_ID="37831345909")
+    env.update({"valid": {}, "run": {"RESUME_RUN_ID": "1"}, "attempt": {"RESUME_ATTEMPT": "2"},
+                "consumer-stage": {"RESUME_STAGE": "3"}, "tree-stage": {"RESUME_TREE_STAGE": "1"},
+                "version": {"TEST_VERSION": "153.0.8010.47"}, "artifact": {"RESUME_ARTIFACT_IDS": "11712073707"},
+                "upstream": {"UPSTREAM_RUN_ID": "35059013905"}, "cold": {"USE_UPSTREAM_CACHE": "false"},
+                "fast": {"CHROMIX_BUILD_PROFILE": "fast"}}[mutation])
+    result = run_powershell(tmp_path, "try {\n" + guard + "\n} catch { exit 1 }\nexit 0\n", env)
+    assert result.returncode == (0 if mutation == "valid" else 1), result.stderr

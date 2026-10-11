@@ -834,19 +834,25 @@ if ($env:CHROMIX_WINDOWS_VERIFY_SOURCE_REPO -or $env:CHROMIX_WINDOWS_VERIFY_SOUR
   Write-OutVar snapshot_safe false
   $stage6Verify = $StageIndex -eq 6 -and $env:CHROMIX_WINDOWS_VERIFY_SOURCE_SHA -ceq 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c'
   $stage8Verify = $StageIndex -eq 8 -and $env:CHROMIX_WINDOWS_VERIFY_SOURCE_SHA -ceq '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35'
-  if (-not $FromArtifact -or -not ($stage6Verify -or $stage8Verify) -or $Arch -cne "x64" -or
-      -not $RequireUpstreamCache -or $BuildProfile -cne "native" -or ($stage8Verify -and $ValidateOnly) -or
+  $windows155Verify = $StageIndex -eq 2 -and $env:CHROMIX_WINDOWS_VERIFY_SOURCE_SHA -ceq '4470c3c7435a9f2de203396587c6f57705a8c9d5'
+  if (-not $FromArtifact -or -not ($stage6Verify -or $stage8Verify -or $windows155Verify) -or $Arch -cne "x64" -or
+      -not $RequireUpstreamCache -or $BuildProfile -cne "native" -or (($stage8Verify -or $windows155Verify) -and $ValidateOnly) -or
       -not $env:CHROMIX_WINDOWS_VERIFY_SOURCE_REPO -or -not $env:CHROMIX_WINDOWS_VERIFY_SOURCE_SHA -or
       $env:CHROMIX_WINDOWS_MIGRATION_REPO -or $env:CHROMIX_WINDOWS_MIGRATION_SHA -or $env:CHROMIX_WINDOWS_MIGRATION_PROFILE) {
-    throw "unchanged-source verification requires an exact native x64 stage6 or stage8 upstream snapshot, without migration"
+    throw "unchanged-source verification requires an exact supported native x64 upstream snapshot, without migration"
   }
   $verifyDiagnostics = Join-Path $WorkDir "fingerprint-diagnostics"
-  if ($stage8Verify) {
+  if ($stage8Verify -or $windows155Verify) {
+    $consumerJob = if ($windows155Verify) { 'build-2' } else { 'build-8' }
     if ($env:GITHUB_RUN_ID -cnotmatch '\A[1-9][0-9]*\z' -or $env:GITHUB_RUN_ATTEMPT -cnotmatch '\A[1-9][0-9]*\z' -or
-        $env:GITHUB_JOB -cne 'build-8' -or $env:GITHUB_SHA -cnotmatch '\A[0-9a-f]{40}\z') {
-      throw 'stage8 recovery requires an exact consumer run/attempt/job/SHA'
+        $env:GITHUB_JOB -cne $consumerJob -or $env:GITHUB_SHA -cnotmatch '\A[0-9a-f]{40}\z') {
+      throw 'Checkpoint recovery requires an exact consumer run/attempt/job/SHA'
     }
     $recoveryRelative = "recovery-hops/d35485726877-a1-s8-j106081168976/c$env:GITHUB_RUN_ID-a$env:GITHUB_RUN_ATTEMPT-$env:GITHUB_JOB-$env:GITHUB_SHA"
+    if ($windows155Verify) {
+      if ($env:GITHUB_RUN_ID -ceq '38136799729') { throw 'Windows155 recovery requires a new consumer run' }
+      $recoveryRelative = "recovery-hops/d38136799729-a1-s2-j114518496535/c$env:GITHUB_RUN_ID-a$env:GITHUB_RUN_ATTEMPT-$env:GITHUB_JOB-$env:GITHUB_SHA"
+    }
     $RecoveryDiagnostics = Join-Path $verifyDiagnostics $recoveryRelative
     if (Test-Path -LiteralPath $RecoveryDiagnostics) { throw 'Current recovery evidence directory already exists' }
     New-Item -ItemType Directory -Path $RecoveryDiagnostics | Out-Null
@@ -863,16 +869,18 @@ if ($env:CHROMIX_WINDOWS_VERIFY_SOURCE_REPO -or $env:CHROMIX_WINDOWS_VERIFY_SOUR
   foreach ($name in @("windows-snapshot.json", "windows-snapshot-download.json")) {
     [IO.File]::Copy((Join-Path $env:RUNNER_TEMP $name), (Join-Path $verifyDiagnostics $name), $false)
   }
-  if ($stage8Verify) {
+  if ($stage8Verify -or $windows155Verify) {
     $publishHop = @'
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]) / 'tools'))
-from verify_windows_snapshot_source import publish_stage8_hop
-publish_stage8_hop(Path(sys.argv[2]))
+from verify_windows_snapshot_source import publish_stage8_hop, publish_windows155_hop
+publish = publish_windows155_hop if sys.argv[3] == "155" else publish_stage8_hop
+publish(Path(sys.argv[2]))
 '@
-    & python -X utf8 -c $publishHop $Repo $verifyDiagnostics
-    if ($LASTEXITCODE -ne 0) { throw 'Current stage8 recovery evidence binding failed' }
+    $recoveryVersion = if ($windows155Verify) { '155' } else { '153' }
+    & python -X utf8 -c $publishHop $Repo $verifyDiagnostics $recoveryVersion
+    if ($LASTEXITCODE -ne 0) { throw 'Current checkpoint recovery evidence binding failed' }
     Write-OutVar recovery_report_dir $recoveryRelative
     Write-Host "==> current strict recovery evidence: $recoveryRelative"
   }
@@ -1161,8 +1169,16 @@ for relative, keys in RESTORED.items():
   & python -X utf8 (Join-Path $Repo "tools\verify_patch_stack.py") --src $Src --repo $Repo `
     --core $UngoogledTooling --platform-tooling $WindowsTooling --platform windows --output $FingerprintSourceReport
   if ($LASTEXITCODE -ne 0) { throw "restored source does not contain the current fingerprint patch stack" }
+  $metagenBindings = Join-Path $Repo "tools\install_windows_metagen_bindings.py"
+  & python -X utf8 $metagenBindings --configure --src $Src --out $OutDir `
+    --chromium-version $Revisions.ChromiumVersion
+  if ($LASTEXITCODE -ne 0) { throw "Windows metagen source library configuration failed" }
   & $gn gen $OutDir --fail-on-unused-args
   if ($LASTEXITCODE -ne 0) { throw "gn gen failed" }
+  # Hosted Python packages are not part of the source snapshot; check every stage.
+  & python -X utf8 $metagenBindings --src $Src --out $OutDir --ninja $Ninja `
+    --chromium-version $Revisions.ChromiumVersion --download
+  if ($LASTEXITCODE -ne 0) { throw "Windows metagen bindings/API preflight failed" }
   if ($RestoredUpstream) {
     Write-Host "==> recording incremental Ninja plan for restored upstream source/out/Default"
     & $Ninja -C $OutDir -n chrome `

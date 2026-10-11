@@ -61,8 +61,14 @@ runs:
             $env:SNAPSHOT_BRANCH -ceq 'fix/win153-midl-stat-20260920' -and
             $env:SNAPSHOT_REPOSITORY -ceq 'xiaozhou26/Chromix' -and
             $env:CHROMIX_BUILD_PROFILE -ceq 'native' -and $env:CHROMIX_USE_UPSTREAM_CACHE -ceq '1'
-          if (-not ($stage6 -or $stage8)) {
-            throw 'verify-source requires an exact Windows153 x64 stage6 or stage8 donor profile'
+          $windows155 = $env:SNAPSHOT_SHA -ceq '4470c3c7435a9f2de203396587c6f57705a8c9d5' -and
+            $env:SNAPSHOT_RUN -ceq '38136799729' -and $env:SNAPSHOT_STAGE -ceq '2' -and
+            $env:SNAPSHOT_ATTEMPT -ceq '1' -and ($artifactIds -join ',') -ceq '11712073707,11712278108' -and
+            $env:SNAPSHOT_BRANCH -ceq 'build/chromium155-donors-20261011' -and
+            $env:SNAPSHOT_REPOSITORY -ceq 'xiaozhou26/Chromix' -and
+            $env:CHROMIX_BUILD_PROFILE -ceq 'native' -and $env:CHROMIX_USE_UPSTREAM_CACHE -ceq '1'
+          if (-not ($stage6 -or $stage8 -or $windows155)) {
+            throw 'verify-source requires an exact supported Windows x64 donor profile'
           }
           if ($env:CHROMIX_WINDOWS_MIGRATION_REPO -or $env:CHROMIX_WINDOWS_MIGRATION_SHA -or $env:CHROMIX_WINDOWS_MIGRATION_PROFILE) {
             throw 'verify-source cannot enable migration'
@@ -184,6 +190,24 @@ runs:
         steps = [step for step in jobs[0]["steps"] if step.get("name") == "Run stage 8"]
         if len(steps) != 1 or steps[0].get("conclusion") != "failure":
             raise RuntimeError("stage8 donor must retain its failed execution evidence")
+    - name: Bind exact Windows155 stage2 checkpoint metadata
+      if: ${{ inputs.mode == 'verify-source' && inputs.source-sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5' }}
+      shell: python
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        PYTHONDONTWRITEBYTECODE: '1'
+      run: |
+        import json
+        import os
+        from pathlib import Path
+        import sys
+
+        sys.path.insert(0, str(Path(os.environ["GITHUB_WORKSPACE"]) / "tools"))
+        from verify_windows_snapshot_source import WINDOWS155_DONOR, verify_windows155_metadata
+        from validate_windows_snapshot import Client
+
+        manifest = json.loads((Path(os.environ["RUNNER_TEMP"]) / "windows-snapshot.json").read_bytes())
+        verify_windows155_metadata(manifest, Client(WINDOWS155_DONOR["repository"], os.environ["GH_TOKEN"]))
     - name: Checkout exact previous source identity
       uses: actions/checkout@v4
       with:

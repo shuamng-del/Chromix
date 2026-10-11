@@ -226,6 +226,17 @@ jobs:
                 $env:UPSTREAM_RUN_ID -cne '35059013905') {
               throw 'Unchanged-source restore requires the exact Windows153 native x64 stage8 upstream configuration'
             }
+          } elseif ($env:RESUME_SOURCE_SHA -ceq '4470c3c7435a9f2de203396587c6f57705a8c9d5') {
+            $windowsPins = & (Join-Path $env:GITHUB_WORKSPACE 'build/windows/read-platform-pins.ps1') -Repo $env:GITHUB_WORKSPACE
+            $artifactIds = @($env:RESUME_ARTIFACT_IDS.Split(',') | ForEach-Object { $_.Trim() } | Sort-Object)
+            if ($windowsPins.ChromiumVersion -cne '155.0.8059.39' -or
+                $env:RESUME_RUN_ID -cne '38136799729' -or $env:RESUME_STAGE -cne '2' -or
+                $env:RESUME_TREE_STAGE -cne '2' -or $env:RESUME_ATTEMPT -cne '1' -or
+                ($artifactIds -join ',') -cne '11712073707,11712278108' -or
+                $env:CHROMIX_BUILD_PROFILE -cne 'native' -or $env:USE_UPSTREAM_CACHE -cne 'true' -or
+                $env:UPSTREAM_RUN_ID -cne '37831345909') {
+              throw 'Unchanged-source restore requires the exact Windows155 native x64 stage2 upstream configuration'
+            }
           } elseif ($env:RESUME_SOURCE_SHA) {
             $targetVersion = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'CHROMIUM_VERSION') -Raw).Trim()
             $targetPins = Import-PowerShellDataFile (Join-Path $env:GITHUB_WORKSPACE 'build/ungoogled-revisions.psd1')
@@ -254,14 +265,14 @@ jobs:
         if: ${{ inputs.resume_source_sha != '' && github.job == format('build-{0}', inputs.resume_stage) }}
         uses: ./.github/actions/restore-windows-snapshot
         with:
-          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35') && 'verify-source' || 'migration' }}
+          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' || inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5') && 'verify-source' || 'migration' }}
           repository: ${{ github.repository }}
           run-id: ${{ inputs.resume_run_id }}
           stage: ${{ inputs.resume_tree_stage }}
           attempt: ${{ inputs.resume_attempt }}
           source-sha: ${{ inputs.resume_source_sha }}
           artifact-ids: ${{ inputs.resume_artifact_ids }}
-          recovery-branch: ${{ inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
+          recovery-branch: ${{ inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5' && 'build/chromium155-donors-20261011' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
           token: ${{ github.token }}
       - name: Verify native process-tree cleanup
         shell: powershell
@@ -422,6 +433,17 @@ jobs:
                 $env:UPSTREAM_RUN_ID -cne '35059013905') {
               throw 'Unchanged-source restore requires the exact Windows153 native x64 stage8 upstream configuration'
             }
+          } elseif ($env:RESUME_SOURCE_SHA -ceq '4470c3c7435a9f2de203396587c6f57705a8c9d5') {
+            $windowsPins = & (Join-Path $env:GITHUB_WORKSPACE 'build/windows/read-platform-pins.ps1') -Repo $env:GITHUB_WORKSPACE
+            $artifactIds = @($env:RESUME_ARTIFACT_IDS.Split(',') | ForEach-Object { $_.Trim() } | Sort-Object)
+            if ($windowsPins.ChromiumVersion -cne '155.0.8059.39' -or
+                $env:RESUME_RUN_ID -cne '38136799729' -or $env:RESUME_STAGE -cne '2' -or
+                $env:RESUME_TREE_STAGE -cne '2' -or $env:RESUME_ATTEMPT -cne '1' -or
+                ($artifactIds -join ',') -cne '11712073707,11712278108' -or
+                $env:CHROMIX_BUILD_PROFILE -cne 'native' -or $env:USE_UPSTREAM_CACHE -cne 'true' -or
+                $env:UPSTREAM_RUN_ID -cne '37831345909') {
+              throw 'Unchanged-source restore requires the exact Windows155 native x64 stage2 upstream configuration'
+            }
           } elseif ($env:RESUME_SOURCE_SHA) {
             $targetVersion = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'CHROMIUM_VERSION') -Raw).Trim()
             $targetPins = Import-PowerShellDataFile (Join-Path $env:GITHUB_WORKSPACE 'build/ungoogled-revisions.psd1')
@@ -450,14 +472,14 @@ jobs:
         if: ${{ inputs.resume_source_sha != '' && github.job == format('build-{0}', inputs.resume_stage) }}
         uses: ./.github/actions/restore-windows-snapshot
         with:
-          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35') && 'verify-source' || 'migration' }}
+          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' || inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5') && 'verify-source' || 'migration' }}
           repository: ${{ github.repository }}
           run-id: ${{ inputs.resume_run_id }}
           stage: ${{ inputs.resume_tree_stage }}
           attempt: ${{ inputs.resume_attempt }}
           source-sha: ${{ inputs.resume_source_sha }}
           artifact-ids: ${{ inputs.resume_artifact_ids }}
-          recovery-branch: ${{ inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
+          recovery-branch: ${{ inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5' && 'build/chromium155-donors-20261011' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
           token: ${{ github.token }}
       - name: Download tree from previous stage
         if: ${{ inputs.resume_run_id == '' || inputs.resume_stage != '2' }}
@@ -606,6 +628,17 @@ jobs:
                 $env:UPSTREAM_RUN_ID -cne '35059013905') {
               throw 'Unchanged-source restore requires the exact Windows153 native x64 stage8 upstream configuration'
             }
+          } elseif ($env:RESUME_SOURCE_SHA -ceq '4470c3c7435a9f2de203396587c6f57705a8c9d5') {
+            $windowsPins = & (Join-Path $env:GITHUB_WORKSPACE 'build/windows/read-platform-pins.ps1') -Repo $env:GITHUB_WORKSPACE
+            $artifactIds = @($env:RESUME_ARTIFACT_IDS.Split(',') | ForEach-Object { $_.Trim() } | Sort-Object)
+            if ($windowsPins.ChromiumVersion -cne '155.0.8059.39' -or
+                $env:RESUME_RUN_ID -cne '38136799729' -or $env:RESUME_STAGE -cne '2' -or
+                $env:RESUME_TREE_STAGE -cne '2' -or $env:RESUME_ATTEMPT -cne '1' -or
+                ($artifactIds -join ',') -cne '11712073707,11712278108' -or
+                $env:CHROMIX_BUILD_PROFILE -cne 'native' -or $env:USE_UPSTREAM_CACHE -cne 'true' -or
+                $env:UPSTREAM_RUN_ID -cne '37831345909') {
+              throw 'Unchanged-source restore requires the exact Windows155 native x64 stage2 upstream configuration'
+            }
           } elseif ($env:RESUME_SOURCE_SHA) {
             $targetVersion = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'CHROMIUM_VERSION') -Raw).Trim()
             $targetPins = Import-PowerShellDataFile (Join-Path $env:GITHUB_WORKSPACE 'build/ungoogled-revisions.psd1')
@@ -634,14 +667,14 @@ jobs:
         if: ${{ inputs.resume_source_sha != '' && github.job == format('build-{0}', inputs.resume_stage) }}
         uses: ./.github/actions/restore-windows-snapshot
         with:
-          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35') && 'verify-source' || 'migration' }}
+          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' || inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5') && 'verify-source' || 'migration' }}
           repository: ${{ github.repository }}
           run-id: ${{ inputs.resume_run_id }}
           stage: ${{ inputs.resume_tree_stage }}
           attempt: ${{ inputs.resume_attempt }}
           source-sha: ${{ inputs.resume_source_sha }}
           artifact-ids: ${{ inputs.resume_artifact_ids }}
-          recovery-branch: ${{ inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
+          recovery-branch: ${{ inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5' && 'build/chromium155-donors-20261011' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
           token: ${{ github.token }}
       - name: Download tree from previous stage
         if: ${{ inputs.resume_run_id == '' || inputs.resume_stage != '3' }}
@@ -790,6 +823,17 @@ jobs:
                 $env:UPSTREAM_RUN_ID -cne '35059013905') {
               throw 'Unchanged-source restore requires the exact Windows153 native x64 stage8 upstream configuration'
             }
+          } elseif ($env:RESUME_SOURCE_SHA -ceq '4470c3c7435a9f2de203396587c6f57705a8c9d5') {
+            $windowsPins = & (Join-Path $env:GITHUB_WORKSPACE 'build/windows/read-platform-pins.ps1') -Repo $env:GITHUB_WORKSPACE
+            $artifactIds = @($env:RESUME_ARTIFACT_IDS.Split(',') | ForEach-Object { $_.Trim() } | Sort-Object)
+            if ($windowsPins.ChromiumVersion -cne '155.0.8059.39' -or
+                $env:RESUME_RUN_ID -cne '38136799729' -or $env:RESUME_STAGE -cne '2' -or
+                $env:RESUME_TREE_STAGE -cne '2' -or $env:RESUME_ATTEMPT -cne '1' -or
+                ($artifactIds -join ',') -cne '11712073707,11712278108' -or
+                $env:CHROMIX_BUILD_PROFILE -cne 'native' -or $env:USE_UPSTREAM_CACHE -cne 'true' -or
+                $env:UPSTREAM_RUN_ID -cne '37831345909') {
+              throw 'Unchanged-source restore requires the exact Windows155 native x64 stage2 upstream configuration'
+            }
           } elseif ($env:RESUME_SOURCE_SHA) {
             $targetVersion = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'CHROMIUM_VERSION') -Raw).Trim()
             $targetPins = Import-PowerShellDataFile (Join-Path $env:GITHUB_WORKSPACE 'build/ungoogled-revisions.psd1')
@@ -818,14 +862,14 @@ jobs:
         if: ${{ inputs.resume_source_sha != '' && github.job == format('build-{0}', inputs.resume_stage) }}
         uses: ./.github/actions/restore-windows-snapshot
         with:
-          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35') && 'verify-source' || 'migration' }}
+          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' || inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5') && 'verify-source' || 'migration' }}
           repository: ${{ github.repository }}
           run-id: ${{ inputs.resume_run_id }}
           stage: ${{ inputs.resume_tree_stage }}
           attempt: ${{ inputs.resume_attempt }}
           source-sha: ${{ inputs.resume_source_sha }}
           artifact-ids: ${{ inputs.resume_artifact_ids }}
-          recovery-branch: ${{ inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
+          recovery-branch: ${{ inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5' && 'build/chromium155-donors-20261011' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
           token: ${{ github.token }}
       - name: Download tree from previous stage
         if: ${{ inputs.resume_run_id == '' || inputs.resume_stage != '4' }}
@@ -974,6 +1018,17 @@ jobs:
                 $env:UPSTREAM_RUN_ID -cne '35059013905') {
               throw 'Unchanged-source restore requires the exact Windows153 native x64 stage8 upstream configuration'
             }
+          } elseif ($env:RESUME_SOURCE_SHA -ceq '4470c3c7435a9f2de203396587c6f57705a8c9d5') {
+            $windowsPins = & (Join-Path $env:GITHUB_WORKSPACE 'build/windows/read-platform-pins.ps1') -Repo $env:GITHUB_WORKSPACE
+            $artifactIds = @($env:RESUME_ARTIFACT_IDS.Split(',') | ForEach-Object { $_.Trim() } | Sort-Object)
+            if ($windowsPins.ChromiumVersion -cne '155.0.8059.39' -or
+                $env:RESUME_RUN_ID -cne '38136799729' -or $env:RESUME_STAGE -cne '2' -or
+                $env:RESUME_TREE_STAGE -cne '2' -or $env:RESUME_ATTEMPT -cne '1' -or
+                ($artifactIds -join ',') -cne '11712073707,11712278108' -or
+                $env:CHROMIX_BUILD_PROFILE -cne 'native' -or $env:USE_UPSTREAM_CACHE -cne 'true' -or
+                $env:UPSTREAM_RUN_ID -cne '37831345909') {
+              throw 'Unchanged-source restore requires the exact Windows155 native x64 stage2 upstream configuration'
+            }
           } elseif ($env:RESUME_SOURCE_SHA) {
             $targetVersion = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'CHROMIUM_VERSION') -Raw).Trim()
             $targetPins = Import-PowerShellDataFile (Join-Path $env:GITHUB_WORKSPACE 'build/ungoogled-revisions.psd1')
@@ -1002,14 +1057,14 @@ jobs:
         if: ${{ inputs.resume_source_sha != '' && github.job == format('build-{0}', inputs.resume_stage) }}
         uses: ./.github/actions/restore-windows-snapshot
         with:
-          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35') && 'verify-source' || 'migration' }}
+          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' || inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5') && 'verify-source' || 'migration' }}
           repository: ${{ github.repository }}
           run-id: ${{ inputs.resume_run_id }}
           stage: ${{ inputs.resume_tree_stage }}
           attempt: ${{ inputs.resume_attempt }}
           source-sha: ${{ inputs.resume_source_sha }}
           artifact-ids: ${{ inputs.resume_artifact_ids }}
-          recovery-branch: ${{ inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
+          recovery-branch: ${{ inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5' && 'build/chromium155-donors-20261011' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
           token: ${{ github.token }}
       - name: Download tree from previous stage
         if: ${{ inputs.resume_run_id == '' || inputs.resume_stage != '5' }}
@@ -1158,6 +1213,17 @@ jobs:
                 $env:UPSTREAM_RUN_ID -cne '35059013905') {
               throw 'Unchanged-source restore requires the exact Windows153 native x64 stage8 upstream configuration'
             }
+          } elseif ($env:RESUME_SOURCE_SHA -ceq '4470c3c7435a9f2de203396587c6f57705a8c9d5') {
+            $windowsPins = & (Join-Path $env:GITHUB_WORKSPACE 'build/windows/read-platform-pins.ps1') -Repo $env:GITHUB_WORKSPACE
+            $artifactIds = @($env:RESUME_ARTIFACT_IDS.Split(',') | ForEach-Object { $_.Trim() } | Sort-Object)
+            if ($windowsPins.ChromiumVersion -cne '155.0.8059.39' -or
+                $env:RESUME_RUN_ID -cne '38136799729' -or $env:RESUME_STAGE -cne '2' -or
+                $env:RESUME_TREE_STAGE -cne '2' -or $env:RESUME_ATTEMPT -cne '1' -or
+                ($artifactIds -join ',') -cne '11712073707,11712278108' -or
+                $env:CHROMIX_BUILD_PROFILE -cne 'native' -or $env:USE_UPSTREAM_CACHE -cne 'true' -or
+                $env:UPSTREAM_RUN_ID -cne '37831345909') {
+              throw 'Unchanged-source restore requires the exact Windows155 native x64 stage2 upstream configuration'
+            }
           } elseif ($env:RESUME_SOURCE_SHA) {
             $targetVersion = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'CHROMIUM_VERSION') -Raw).Trim()
             $targetPins = Import-PowerShellDataFile (Join-Path $env:GITHUB_WORKSPACE 'build/ungoogled-revisions.psd1')
@@ -1186,14 +1252,14 @@ jobs:
         if: ${{ inputs.resume_source_sha != '' && github.job == format('build-{0}', inputs.resume_stage) }}
         uses: ./.github/actions/restore-windows-snapshot
         with:
-          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35') && 'verify-source' || 'migration' }}
+          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' || inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5') && 'verify-source' || 'migration' }}
           repository: ${{ github.repository }}
           run-id: ${{ inputs.resume_run_id }}
           stage: ${{ inputs.resume_tree_stage }}
           attempt: ${{ inputs.resume_attempt }}
           source-sha: ${{ inputs.resume_source_sha }}
           artifact-ids: ${{ inputs.resume_artifact_ids }}
-          recovery-branch: ${{ inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
+          recovery-branch: ${{ inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5' && 'build/chromium155-donors-20261011' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
           token: ${{ github.token }}
       - name: Download tree from previous stage
         if: ${{ inputs.resume_run_id == '' || inputs.resume_stage != '6' }}
@@ -1342,6 +1408,17 @@ jobs:
                 $env:UPSTREAM_RUN_ID -cne '35059013905') {
               throw 'Unchanged-source restore requires the exact Windows153 native x64 stage8 upstream configuration'
             }
+          } elseif ($env:RESUME_SOURCE_SHA -ceq '4470c3c7435a9f2de203396587c6f57705a8c9d5') {
+            $windowsPins = & (Join-Path $env:GITHUB_WORKSPACE 'build/windows/read-platform-pins.ps1') -Repo $env:GITHUB_WORKSPACE
+            $artifactIds = @($env:RESUME_ARTIFACT_IDS.Split(',') | ForEach-Object { $_.Trim() } | Sort-Object)
+            if ($windowsPins.ChromiumVersion -cne '155.0.8059.39' -or
+                $env:RESUME_RUN_ID -cne '38136799729' -or $env:RESUME_STAGE -cne '2' -or
+                $env:RESUME_TREE_STAGE -cne '2' -or $env:RESUME_ATTEMPT -cne '1' -or
+                ($artifactIds -join ',') -cne '11712073707,11712278108' -or
+                $env:CHROMIX_BUILD_PROFILE -cne 'native' -or $env:USE_UPSTREAM_CACHE -cne 'true' -or
+                $env:UPSTREAM_RUN_ID -cne '37831345909') {
+              throw 'Unchanged-source restore requires the exact Windows155 native x64 stage2 upstream configuration'
+            }
           } elseif ($env:RESUME_SOURCE_SHA) {
             $targetVersion = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'CHROMIUM_VERSION') -Raw).Trim()
             $targetPins = Import-PowerShellDataFile (Join-Path $env:GITHUB_WORKSPACE 'build/ungoogled-revisions.psd1')
@@ -1370,14 +1447,14 @@ jobs:
         if: ${{ inputs.resume_source_sha != '' && github.job == format('build-{0}', inputs.resume_stage) }}
         uses: ./.github/actions/restore-windows-snapshot
         with:
-          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35') && 'verify-source' || 'migration' }}
+          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' || inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5') && 'verify-source' || 'migration' }}
           repository: ${{ github.repository }}
           run-id: ${{ inputs.resume_run_id }}
           stage: ${{ inputs.resume_tree_stage }}
           attempt: ${{ inputs.resume_attempt }}
           source-sha: ${{ inputs.resume_source_sha }}
           artifact-ids: ${{ inputs.resume_artifact_ids }}
-          recovery-branch: ${{ inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
+          recovery-branch: ${{ inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5' && 'build/chromium155-donors-20261011' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
           token: ${{ github.token }}
       - name: Download tree from previous stage
         if: ${{ inputs.resume_run_id == '' || inputs.resume_stage != '7' }}
@@ -1526,6 +1603,17 @@ jobs:
                 $env:UPSTREAM_RUN_ID -cne '35059013905') {
               throw 'Unchanged-source restore requires the exact Windows153 native x64 stage8 upstream configuration'
             }
+          } elseif ($env:RESUME_SOURCE_SHA -ceq '4470c3c7435a9f2de203396587c6f57705a8c9d5') {
+            $windowsPins = & (Join-Path $env:GITHUB_WORKSPACE 'build/windows/read-platform-pins.ps1') -Repo $env:GITHUB_WORKSPACE
+            $artifactIds = @($env:RESUME_ARTIFACT_IDS.Split(',') | ForEach-Object { $_.Trim() } | Sort-Object)
+            if ($windowsPins.ChromiumVersion -cne '155.0.8059.39' -or
+                $env:RESUME_RUN_ID -cne '38136799729' -or $env:RESUME_STAGE -cne '2' -or
+                $env:RESUME_TREE_STAGE -cne '2' -or $env:RESUME_ATTEMPT -cne '1' -or
+                ($artifactIds -join ',') -cne '11712073707,11712278108' -or
+                $env:CHROMIX_BUILD_PROFILE -cne 'native' -or $env:USE_UPSTREAM_CACHE -cne 'true' -or
+                $env:UPSTREAM_RUN_ID -cne '37831345909') {
+              throw 'Unchanged-source restore requires the exact Windows155 native x64 stage2 upstream configuration'
+            }
           } elseif ($env:RESUME_SOURCE_SHA) {
             $targetVersion = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'CHROMIUM_VERSION') -Raw).Trim()
             $targetPins = Import-PowerShellDataFile (Join-Path $env:GITHUB_WORKSPACE 'build/ungoogled-revisions.psd1')
@@ -1554,14 +1642,14 @@ jobs:
         if: ${{ inputs.resume_source_sha != '' && github.job == format('build-{0}', inputs.resume_stage) }}
         uses: ./.github/actions/restore-windows-snapshot
         with:
-          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35') && 'verify-source' || 'migration' }}
+          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' || inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5') && 'verify-source' || 'migration' }}
           repository: ${{ github.repository }}
           run-id: ${{ inputs.resume_run_id }}
           stage: ${{ inputs.resume_tree_stage }}
           attempt: ${{ inputs.resume_attempt }}
           source-sha: ${{ inputs.resume_source_sha }}
           artifact-ids: ${{ inputs.resume_artifact_ids }}
-          recovery-branch: ${{ inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
+          recovery-branch: ${{ inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5' && 'build/chromium155-donors-20261011' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
           token: ${{ github.token }}
       - name: Download tree from previous stage
         if: ${{ inputs.resume_run_id == '' || inputs.resume_stage != '8' }}
@@ -1710,6 +1798,17 @@ jobs:
                 $env:UPSTREAM_RUN_ID -cne '35059013905') {
               throw 'Unchanged-source restore requires the exact Windows153 native x64 stage8 upstream configuration'
             }
+          } elseif ($env:RESUME_SOURCE_SHA -ceq '4470c3c7435a9f2de203396587c6f57705a8c9d5') {
+            $windowsPins = & (Join-Path $env:GITHUB_WORKSPACE 'build/windows/read-platform-pins.ps1') -Repo $env:GITHUB_WORKSPACE
+            $artifactIds = @($env:RESUME_ARTIFACT_IDS.Split(',') | ForEach-Object { $_.Trim() } | Sort-Object)
+            if ($windowsPins.ChromiumVersion -cne '155.0.8059.39' -or
+                $env:RESUME_RUN_ID -cne '38136799729' -or $env:RESUME_STAGE -cne '2' -or
+                $env:RESUME_TREE_STAGE -cne '2' -or $env:RESUME_ATTEMPT -cne '1' -or
+                ($artifactIds -join ',') -cne '11712073707,11712278108' -or
+                $env:CHROMIX_BUILD_PROFILE -cne 'native' -or $env:USE_UPSTREAM_CACHE -cne 'true' -or
+                $env:UPSTREAM_RUN_ID -cne '37831345909') {
+              throw 'Unchanged-source restore requires the exact Windows155 native x64 stage2 upstream configuration'
+            }
           } elseif ($env:RESUME_SOURCE_SHA) {
             $targetVersion = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'CHROMIUM_VERSION') -Raw).Trim()
             $targetPins = Import-PowerShellDataFile (Join-Path $env:GITHUB_WORKSPACE 'build/ungoogled-revisions.psd1')
@@ -1738,14 +1837,14 @@ jobs:
         if: ${{ inputs.resume_source_sha != '' && github.job == format('build-{0}', inputs.resume_stage) }}
         uses: ./.github/actions/restore-windows-snapshot
         with:
-          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35') && 'verify-source' || 'migration' }}
+          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' || inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5') && 'verify-source' || 'migration' }}
           repository: ${{ github.repository }}
           run-id: ${{ inputs.resume_run_id }}
           stage: ${{ inputs.resume_tree_stage }}
           attempt: ${{ inputs.resume_attempt }}
           source-sha: ${{ inputs.resume_source_sha }}
           artifact-ids: ${{ inputs.resume_artifact_ids }}
-          recovery-branch: ${{ inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
+          recovery-branch: ${{ inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5' && 'build/chromium155-donors-20261011' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
           token: ${{ github.token }}
       - name: Download tree from previous stage
         if: ${{ inputs.resume_run_id == '' || inputs.resume_stage != '9' }}
@@ -1894,6 +1993,17 @@ jobs:
                 $env:UPSTREAM_RUN_ID -cne '35059013905') {
               throw 'Unchanged-source restore requires the exact Windows153 native x64 stage8 upstream configuration'
             }
+          } elseif ($env:RESUME_SOURCE_SHA -ceq '4470c3c7435a9f2de203396587c6f57705a8c9d5') {
+            $windowsPins = & (Join-Path $env:GITHUB_WORKSPACE 'build/windows/read-platform-pins.ps1') -Repo $env:GITHUB_WORKSPACE
+            $artifactIds = @($env:RESUME_ARTIFACT_IDS.Split(',') | ForEach-Object { $_.Trim() } | Sort-Object)
+            if ($windowsPins.ChromiumVersion -cne '155.0.8059.39' -or
+                $env:RESUME_RUN_ID -cne '38136799729' -or $env:RESUME_STAGE -cne '2' -or
+                $env:RESUME_TREE_STAGE -cne '2' -or $env:RESUME_ATTEMPT -cne '1' -or
+                ($artifactIds -join ',') -cne '11712073707,11712278108' -or
+                $env:CHROMIX_BUILD_PROFILE -cne 'native' -or $env:USE_UPSTREAM_CACHE -cne 'true' -or
+                $env:UPSTREAM_RUN_ID -cne '37831345909') {
+              throw 'Unchanged-source restore requires the exact Windows155 native x64 stage2 upstream configuration'
+            }
           } elseif ($env:RESUME_SOURCE_SHA) {
             $targetVersion = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'CHROMIUM_VERSION') -Raw).Trim()
             $targetPins = Import-PowerShellDataFile (Join-Path $env:GITHUB_WORKSPACE 'build/ungoogled-revisions.psd1')
@@ -1922,14 +2032,14 @@ jobs:
         if: ${{ inputs.resume_source_sha != '' && github.job == format('build-{0}', inputs.resume_stage) }}
         uses: ./.github/actions/restore-windows-snapshot
         with:
-          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35') && 'verify-source' || 'migration' }}
+          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' || inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5') && 'verify-source' || 'migration' }}
           repository: ${{ github.repository }}
           run-id: ${{ inputs.resume_run_id }}
           stage: ${{ inputs.resume_tree_stage }}
           attempt: ${{ inputs.resume_attempt }}
           source-sha: ${{ inputs.resume_source_sha }}
           artifact-ids: ${{ inputs.resume_artifact_ids }}
-          recovery-branch: ${{ inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
+          recovery-branch: ${{ inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5' && 'build/chromium155-donors-20261011' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
           token: ${{ github.token }}
       - name: Download tree from previous stage
         if: ${{ inputs.resume_run_id == '' || inputs.resume_stage != '10' }}
@@ -2078,6 +2188,17 @@ jobs:
                 $env:UPSTREAM_RUN_ID -cne '35059013905') {
               throw 'Unchanged-source restore requires the exact Windows153 native x64 stage8 upstream configuration'
             }
+          } elseif ($env:RESUME_SOURCE_SHA -ceq '4470c3c7435a9f2de203396587c6f57705a8c9d5') {
+            $windowsPins = & (Join-Path $env:GITHUB_WORKSPACE 'build/windows/read-platform-pins.ps1') -Repo $env:GITHUB_WORKSPACE
+            $artifactIds = @($env:RESUME_ARTIFACT_IDS.Split(',') | ForEach-Object { $_.Trim() } | Sort-Object)
+            if ($windowsPins.ChromiumVersion -cne '155.0.8059.39' -or
+                $env:RESUME_RUN_ID -cne '38136799729' -or $env:RESUME_STAGE -cne '2' -or
+                $env:RESUME_TREE_STAGE -cne '2' -or $env:RESUME_ATTEMPT -cne '1' -or
+                ($artifactIds -join ',') -cne '11712073707,11712278108' -or
+                $env:CHROMIX_BUILD_PROFILE -cne 'native' -or $env:USE_UPSTREAM_CACHE -cne 'true' -or
+                $env:UPSTREAM_RUN_ID -cne '37831345909') {
+              throw 'Unchanged-source restore requires the exact Windows155 native x64 stage2 upstream configuration'
+            }
           } elseif ($env:RESUME_SOURCE_SHA) {
             $targetVersion = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'CHROMIUM_VERSION') -Raw).Trim()
             $targetPins = Import-PowerShellDataFile (Join-Path $env:GITHUB_WORKSPACE 'build/ungoogled-revisions.psd1')
@@ -2106,14 +2227,14 @@ jobs:
         if: ${{ inputs.resume_source_sha != '' && github.job == format('build-{0}', inputs.resume_stage) }}
         uses: ./.github/actions/restore-windows-snapshot
         with:
-          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35') && 'verify-source' || 'migration' }}
+          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' || inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5') && 'verify-source' || 'migration' }}
           repository: ${{ github.repository }}
           run-id: ${{ inputs.resume_run_id }}
           stage: ${{ inputs.resume_tree_stage }}
           attempt: ${{ inputs.resume_attempt }}
           source-sha: ${{ inputs.resume_source_sha }}
           artifact-ids: ${{ inputs.resume_artifact_ids }}
-          recovery-branch: ${{ inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
+          recovery-branch: ${{ inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5' && 'build/chromium155-donors-20261011' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
           token: ${{ github.token }}
       - name: Download tree from previous stage
         if: ${{ inputs.resume_run_id == '' || inputs.resume_stage != '11' }}
@@ -2262,6 +2383,17 @@ jobs:
                 $env:UPSTREAM_RUN_ID -cne '35059013905') {
               throw 'Unchanged-source restore requires the exact Windows153 native x64 stage8 upstream configuration'
             }
+          } elseif ($env:RESUME_SOURCE_SHA -ceq '4470c3c7435a9f2de203396587c6f57705a8c9d5') {
+            $windowsPins = & (Join-Path $env:GITHUB_WORKSPACE 'build/windows/read-platform-pins.ps1') -Repo $env:GITHUB_WORKSPACE
+            $artifactIds = @($env:RESUME_ARTIFACT_IDS.Split(',') | ForEach-Object { $_.Trim() } | Sort-Object)
+            if ($windowsPins.ChromiumVersion -cne '155.0.8059.39' -or
+                $env:RESUME_RUN_ID -cne '38136799729' -or $env:RESUME_STAGE -cne '2' -or
+                $env:RESUME_TREE_STAGE -cne '2' -or $env:RESUME_ATTEMPT -cne '1' -or
+                ($artifactIds -join ',') -cne '11712073707,11712278108' -or
+                $env:CHROMIX_BUILD_PROFILE -cne 'native' -or $env:USE_UPSTREAM_CACHE -cne 'true' -or
+                $env:UPSTREAM_RUN_ID -cne '37831345909') {
+              throw 'Unchanged-source restore requires the exact Windows155 native x64 stage2 upstream configuration'
+            }
           } elseif ($env:RESUME_SOURCE_SHA) {
             $targetVersion = (Get-Content -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'CHROMIUM_VERSION') -Raw).Trim()
             $targetPins = Import-PowerShellDataFile (Join-Path $env:GITHUB_WORKSPACE 'build/ungoogled-revisions.psd1')
@@ -2290,14 +2422,14 @@ jobs:
         if: ${{ inputs.resume_source_sha != '' && github.job == format('build-{0}', inputs.resume_stage) }}
         uses: ./.github/actions/restore-windows-snapshot
         with:
-          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35') && 'verify-source' || 'migration' }}
+          mode: ${{ (inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' || inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5') && 'verify-source' || 'migration' }}
           repository: ${{ github.repository }}
           run-id: ${{ inputs.resume_run_id }}
           stage: ${{ inputs.resume_tree_stage }}
           attempt: ${{ inputs.resume_attempt }}
           source-sha: ${{ inputs.resume_source_sha }}
           artifact-ids: ${{ inputs.resume_artifact_ids }}
-          recovery-branch: ${{ inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
+          recovery-branch: ${{ inputs.resume_source_sha == '4470c3c7435a9f2de203396587c6f57705a8c9d5' && 'build/chromium155-donors-20261011' || inputs.resume_source_sha == '2a55082adb89cb8bac7aa7ab8bb61162b53f4c35' && 'fix/win153-midl-stat-20260920' || inputs.resume_source_sha == 'e5b29c58b44e381924a2dd4bd60f54d01abb9d9c' && 'main' || inputs.resume_source_sha == '30dbab28692793fa311c82ae639186003f3a67d9' && 'fix/issue3-font-resume-20260917' || 'fix/issue3-resource-timing-20260916' }}
           token: ${{ github.token }}
       - name: Download tree from previous stage
         if: ${{ inputs.resume_run_id == '' || inputs.resume_stage != '12' }}

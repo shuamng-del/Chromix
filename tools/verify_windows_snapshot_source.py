@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only, unchanged-source verification of the exact Windows 153 x64 donor.
+"""Read-only, unchanged-source verification of the exact Windows x64 donors.
 
 Run only from the target checkout after authenticated extraction, before prepare.
 The previous checkout is data, never a source of executable Python or scripts.
@@ -18,6 +18,7 @@ import tempfile
 import apply_restored_patches as arp
 import merge_gn_args
 import migrate_windows_snapshot as identity
+import patch_selection
 from platform_pins import load_pins
 import restore_upstream_cache as upstream
 import verify_patch_stack as stack
@@ -73,6 +74,77 @@ STAGE8_ALLOWED_CHANGES = frozenset({
 })
 
 
+WINDOWS155_SHA = "4470c3c7435a9f2de203396587c6f57705a8c9d5"
+WINDOWS155_VERSION = "155.0.8059.39"
+WINDOWS155_PROFILE = "windows-155-x64-stage2"
+WINDOWS155_UPSTREAM_RUN_ID = 37831345909
+WINDOWS155_UPSTREAM_ARTIFACT_ID = 11670281902
+WINDOWS155_ORIGINAL_ARGS_SHA256 = "3a389e4125781ebf668790df4d58d1dc11d384518fe0fd9696e1c35417d05d3a"
+WINDOWS155_DONOR = {
+    "repository": "xiaozhou26/Chromix", "run_id": 38136799729, "attempt": 1,
+    "stage": 2, "job_id": 114518496535, "head_sha": WINDOWS155_SHA,
+    "branch": "build/chromium155-donors-20261011",
+}
+WINDOWS155_ARTIFACTS = [
+    {"id": 11712073707, "name": "tree-s2-attempt-1-part1", "size_in_bytes": 9663676664,
+     "expired": False, "digest": "sha256:fb6c5e7cb92a2d2770f3069b8675e45d6e1716fe545d0258b281335d24a358bc"},
+    {"id": 11712278108, "name": "tree-s2-attempt-1-part2", "size_in_bytes": 1653204840,
+     "expired": False, "digest": "sha256:492689130c0846959f62c9f96f4b68f18dac81ec109376fcdc43667c9d01bb95"},
+]
+WINDOWS155_ALLOWED_CHANGES = frozenset({
+    ".github/actions/restore-windows-snapshot/action.yml",
+    ".github/workflows/build-win-x64-github.yml",
+    "build/windows/ci-stage.ps1",
+    "tools/verify_windows_snapshot_source.py",
+    "tools/install_windows_metagen_bindings.py",
+    "tools/tests/test_windows_metagen_bindings.py",
+    "tools/tests/test_verify_windows_snapshot_source.py",
+    "tools/tests/test_windows_snapshot_workflow.py",
+})
+
+
+def verify_windows155_origin(manifest: dict) -> None:
+    expected = {key: value for key, value in WINDOWS155_DONOR.items() if key != "branch"}
+    expected.update(platform="windows", arch="x64", workflow="build-win-x64-github",
+                    pattern="tree-s2-attempt-1-part*", artifacts=WINDOWS155_ARTIFACTS)
+    if manifest != expected:
+        raise ValueError("Windows155 origin differs from the exact checkpoint profile")
+
+
+def verify_windows155_metadata(manifest: dict, client) -> None:
+    verify_windows155_origin(manifest)
+    donor = WINDOWS155_DONOR
+    run = client.get(f'/actions/runs/{donor["run_id"]}')
+    if (run.get("head_branch") != donor["branch"] or run.get("event") != "workflow_dispatch"
+            or run.get("workflow_id") != 339967931 or run.get("run_attempt") != 1
+            or run.get("head_sha") != donor["head_sha"] or run.get("status") != "completed"
+            or run.get("conclusion") != "failure"
+            or any(run.get(key, {}).get("id") != 1342691290 for key in ("repository", "head_repository"))):
+        raise ValueError("Windows155 donor run differs from the recorded failed checkpoint")
+    jobs = client.items(f'/actions/runs/{donor["run_id"]}/attempts/1/jobs', "jobs")
+    jobs = [job for job in jobs if job.get("id") == donor["job_id"]]
+    if len(jobs) != 1 or jobs[0].get("status") != "completed" or jobs[0].get("conclusion") != "failure":
+        raise ValueError("Windows155 donor job differs from the recorded failed checkpoint")
+    steps = [step for step in jobs[0]["steps"] if step.get("name") == "Run stage 2"]
+    if len(steps) != 1 or steps[0].get("conclusion") != "failure":
+        raise ValueError("Windows155 donor must retain its failed execution evidence")
+
+
+def windows155_consumer() -> dict:
+    run = {key: os.environ.get(key, "") for key in
+           ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_JOB", "GITHUB_SHA")}
+    if (any(not re.fullmatch(r"[1-9][0-9]*", run[key]) for key in ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT"))
+            or run["GITHUB_JOB"] != "build-2" or not re.fullmatch(r"[0-9a-f]{40}", run["GITHUB_SHA"])
+            or run["GITHUB_RUN_ID"] == str(WINDOWS155_DONOR["run_id"])):
+        raise ValueError("Windows155 recovery requires a new exact consumer run/attempt/build-2/SHA")
+    return run
+
+
+def publish_windows155_hop(directory: Path) -> None:
+    _publish_hop(directory, WINDOWS155_DONOR, WINDOWS155_ARTIFACTS, WINDOWS155_PROFILE,
+                 windows155_consumer(), verify_windows155_origin)
+
+
 def verify_stage8_origin(manifest: dict) -> None:
     expected = {key: value for key, value in STAGE8_DONOR.items() if key != "branch"}
     expected.update(platform="windows", arch="x64", workflow="build-win-x64-github",
@@ -91,12 +163,18 @@ def stage8_consumer() -> dict:
 
 
 def publish_stage8_hop(directory: Path) -> None:
+    _publish_hop(directory, STAGE8_DONOR, STAGE8_ARTIFACTS, STAGE8_PROFILE,
+                 stage8_consumer(), verify_stage8_origin)
+
+
+def _publish_hop(directory: Path, donor: dict, artifacts: list, profile: str,
+                 consumer: dict, verify_origin) -> None:
     directory = identity._safe(directory, directory=True)
-    consumer = stage8_consumer()
-    expected_suffix = ("fingerprint-diagnostics", "recovery-hops", "d35485726877-a1-s8-j106081168976",
+    expected_suffix = ("fingerprint-diagnostics", "recovery-hops",
+                       f'd{donor["run_id"]}-a{donor["attempt"]}-s{donor["stage"]}-j{donor["job_id"]}',
                        f'c{consumer["GITHUB_RUN_ID"]}-a{consumer["GITHUB_RUN_ATTEMPT"]}-{consumer["GITHUB_JOB"]}-{consumer["GITHUB_SHA"]}')
     if directory.parts[-4:] != expected_suffix:
-        raise ValueError("stage8 recovery report directory is not bound to the current donor/consumer")
+        raise ValueError("recovery report directory is not bound to the current donor/consumer")
     names = ("windows-snapshot.json", "windows-snapshot-download.json", "windows-unchanged-source.json")
     before = identity._capture(directory, names)
     reports = {}
@@ -105,23 +183,23 @@ def publish_stage8_hop(directory: Path) -> None:
         payload = identity._file(directory, name).read_bytes()
         data[key] = json.loads(payload)
         reports[key] = {"path": name, "sha256": hashlib.sha256(payload).hexdigest()}
-    verify_stage8_origin(data["origin"])
+    verify_origin(data["origin"])
     download = data["download"]
     if (any(download.get(key) != value for key, value in
             {"status": "success", "phase": "complete", "publication": "published",
-             "repository": STAGE8_DONOR["repository"], "run_id": STAGE8_DONOR["run_id"],
-             "head_sha": STAGE8_SHA}.items())
-            or [{key: item.get(key) for key in STAGE8_ARTIFACTS[0]} for item in download.get("artifacts", [])]
-            != STAGE8_ARTIFACTS):
-        raise ValueError("stage8 download is not the current successful published checkpoint")
+             "repository": donor["repository"], "run_id": donor["run_id"],
+             "head_sha": donor["head_sha"]}.items())
+            or [{key: item.get(key) for key in artifacts[0]} for item in download.get("artifacts", [])]
+            != artifacts):
+        raise ValueError("checkpoint download is not the current successful published checkpoint")
     source = data["unchanged_source"]
     if any(source.get(key) != value for key, value in
-           {"status": "verified", "operation": "windows-unchanged-source", "profile": STAGE8_PROFILE,
-            "previous_sha": STAGE8_SHA, "target_sha": consumer["GITHUB_SHA"], "run": consumer,
+           {"status": "verified", "operation": "windows-unchanged-source", "profile": profile,
+            "previous_sha": donor["head_sha"], "target_sha": consumer["GITHUB_SHA"], "run": consumer,
             "changed_files": []}.items()):
-        raise ValueError("stage8 source report is not bound to the current recovery hop")
-    report = {"schema_version": 1, "status": "verified", "profile": STAGE8_PROFILE,
-              "donor": STAGE8_DONOR, "consumer": consumer, "reports": reports,
+        raise ValueError("checkpoint source report is not bound to the current recovery hop")
+    report = {"schema_version": 1, "status": "verified", "profile": profile,
+              "donor": donor, "consumer": consumer, "reports": reports,
               "source_verification": "source-verification.json", "runtime_acceptance": "runtime/acceptance.json"}
     identity._unchanged(directory, before)
     with identity._file(directory, "recovery-hop.json", missing=True).open("x", encoding="utf-8") as stream:
@@ -171,6 +249,9 @@ def _inputs(previous: Path, repo: Path, old_tree: dict, new_tree: dict,
 
 
 def _ready_key(repo: Path, pins: dict) -> str:
+    if pins["ChromiumVersion"] == WINDOWS155_VERSION:
+        return "|".join((WINDOWS155_VERSION, pins["UngoogledCommit"], pins["UngoogledWindowsCommit"],
+                         patch_selection.preparation_key(repo, "windows", "windows")))
     digest = hashlib.sha256()
     for name in identity._series(repo):
         digest.update(identity._file(repo, name).read_bytes())
@@ -197,7 +278,7 @@ def _markers(work: Path, src: Path, pins: dict, key: str) -> dict:
     if (src / "out/Chromix").exists():
         raise ValueError("verify-source requires upstream out/Default, not cold out/Chromix")
     values = {
-        ".chromix-source-unpacked": VERSION,
+        ".chromix-source-unpacked": pins["ChromiumVersion"],
         ".chromix-ungoogled-core": pins["UngoogledCommit"],
         ".chromix-ungoogled-windows": pins["UngoogledWindowsCommit"],
         ".chromix-binaries-pruned": pins["UngoogledCommit"],
@@ -206,17 +287,25 @@ def _markers(work: Path, src: Path, pins: dict, key: str) -> dict:
         ".chromix-patches": key.rsplit("|", 1)[1],
         ".chromix-source-ready": key,
     }
+    if pins["ChromiumVersion"] == WINDOWS155_VERSION:
+        values[".chromix-patch-selection"] = key.rsplit("|", 1)[1]
     for name, value in values.items():
         if identity._text(identity._file(src, name)) != value:
             raise ValueError("missing/mismatched prepared layer marker: " + name)
     return identity._capture(src, values)
 
 
-def _native_args(src: Path, repo: Path, core: Path, tooling: Path, receipt: dict) -> None:
+def _native_args(src: Path, repo: Path, core: Path, tooling: Path, receipt: dict, *, preserve_pgo=False) -> None:
     expected = dict(receipt["original_args"]["assignments"])
     for root, name in ((core, "flags.gn"), (tooling, "flags.windows.gn"), (repo, "build/args.windows.gn")):
         _, values = merge_gn_args.parse(identity._file(root, name))
         expected.update(upstream.parse_gn_assignments("\n".join(values.values())))
+    if preserve_pgo:
+        if receipt["original_args"].get("sha256") != WINDOWS155_ORIGINAL_ARGS_SHA256:
+            raise ValueError("Windows155 original GN receipt differs from the exact donor configuration")
+        if receipt["original_args"]["assignments"].get("chrome_pgo_phase") != "2":
+            raise ValueError("Windows155 checkpoint requires the original PGO2 configuration")
+        expected["chrome_pgo_phase"] = "2"
     path = identity._file(src, "out/Default/args.gn")
     # The checkpoint is generated by merge_gn_args: duplicate assignments are not valid here.
     text = path.read_text(encoding="utf-8")
@@ -230,11 +319,13 @@ def _native_args(src: Path, repo: Path, core: Path, tooling: Path, receipt: dict
 
 def verify(workdir: Path, previous_repo: Path, repo: Path, expected_previous_sha: str,
            *, build_profile: str = "native", arch: str = "x64") -> dict:
-    if expected_previous_sha not in (DONOR_SHA, STAGE8_SHA) or build_profile != "native" or arch != "x64":
+    if expected_previous_sha not in (DONOR_SHA, STAGE8_SHA, WINDOWS155_SHA) or build_profile != "native" or arch != "x64":
         raise ValueError("verify-source requires an exact donor and native Windows x64 profile")
     stage8 = expected_previous_sha == STAGE8_SHA
-    allowed = STAGE8_ALLOWED_CHANGES if stage8 else ALLOWED_CHANGES
-    consumer = stage8_consumer() if stage8 else None
+    windows155 = expected_previous_sha == WINDOWS155_SHA
+    version = WINDOWS155_VERSION if windows155 else VERSION
+    allowed = WINDOWS155_ALLOWED_CHANGES if windows155 else STAGE8_ALLOWED_CHANGES if stage8 else ALLOWED_CHANGES
+    consumer = windows155_consumer() if windows155 else stage8_consumer() if stage8 else None
     work, previous, repo = (identity._safe(Path(p), directory=True) for p in (workdir, previous_repo, repo))
     if repo != TRUSTED_REPO:
         raise ValueError("--repo must be the running trusted helper checkout")
@@ -246,15 +337,19 @@ def verify(workdir: Path, previous_repo: Path, repo: Path, expected_previous_sha
     git = identity._host_git(roots)
     old_head, old_tree = identity._tree(git, previous, expected_previous_sha)
     new_head, new_tree = identity._tree(git, repo)
-    if stage8:
+    if stage8 or windows155:
         commit_headers = identity._git(git, repo, "cat-file", "commit", new_head).split(b"\n\n", 1)[0]
         parents = [line[7:].decode("ascii") for line in commit_headers.splitlines() if line.startswith(b"parent ")]
         if parents != [expected_previous_sha] or consumer["GITHUB_SHA"] != new_head:
-            raise ValueError("stage8 target must be the consumer SHA and a direct single-parent child of the donor")
+            raise ValueError("target must be the consumer SHA and a direct single-parent child of the donor")
     old_inputs, new_inputs = _inputs(previous, repo, old_tree, new_tree, allowed)
+    if windows155:
+        if _inventory(repo) != set(new_tree):
+            raise ValueError("Windows155 target must contain only committed inputs")
+        identity._tracked(repo, new_tree)
     pins = load_pins(repo, "windows")
-    if pins != load_pins(previous, "windows") or pins["ChromiumVersion"] != VERSION:
-        raise ValueError("Windows153 preparation pins differ")
+    if pins != load_pins(previous, "windows") or pins["ChromiumVersion"] != version:
+        raise ValueError("Windows preparation pins differ")
     src = identity._safe(work / "src", directory=True)
     core = identity._safe(work / "tooling/ungoogled-chromium", directory=True)
     tooling = identity._safe(work / "tooling/ungoogled-chromium-windows", directory=True)
@@ -269,10 +364,12 @@ def verify(workdir: Path, previous_repo: Path, repo: Path, expected_previous_sha
     markers = _markers(work, src, pins, key)
     arch_state = identity._capture(work, {".chromix-target-arch"})
     receipt = upstream.verify_restored(work, "windows", "x64", repo=repo)
-    if (receipt["manifest"].get("run_id") != int(UPSTREAM_RUN_ID)
-            or receipt["manifest"].get("artifact_id") != UPSTREAM_ARTIFACT_ID):
+    upstream_run = WINDOWS155_UPSTREAM_RUN_ID if windows155 else int(UPSTREAM_RUN_ID)
+    upstream_artifact = WINDOWS155_UPSTREAM_ARTIFACT_ID if windows155 else UPSTREAM_ARTIFACT_ID
+    if (receipt["manifest"].get("run_id") != upstream_run
+            or receipt["manifest"].get("artifact_id") != upstream_artifact):
         raise ValueError("upstream receipt is not the pinned run/artifact")
-    _native_args(src, repo, core, tooling, receipt)
+    _native_args(src, repo, core, tooling, receipt, preserve_pgo=windows155)
     old_identity, _, old_lite = arp._load(previous, core, tooling, "windows")
     current_identity, patches, lite = arp._load(repo, core, tooling, "windows")
     if old_identity != current_identity or old_lite != lite:
@@ -299,10 +396,10 @@ def verify(workdir: Path, previous_repo: Path, repo: Path, expected_previous_sha
     _markers(work, src, pins, key)
     result = {"schema_version": 1, "status": "verified", "operation": "windows-unchanged-source",
               "previous_sha": old_head, "target_sha": new_head, "platform": "windows", "arch": arch,
-              "version": VERSION, "build_profile": build_profile, "key": key, "changed_files": [],
+              "version": version, "build_profile": build_profile, "key": key, "changed_files": [],
               "verification": proof}
-    if stage8:
-        result.update(profile=STAGE8_PROFILE, run=consumer,
+    if stage8 or windows155:
+        result.update(profile=WINDOWS155_PROFILE if windows155 else STAGE8_PROFILE, run=consumer,
                       repository_changed_files=sorted(name for name in set(old_inputs) | set(new_inputs)
                                                       if old_tree.get(name) != new_tree.get(name)
                                                       or (old_inputs.get(name) or (None,))[-2:]

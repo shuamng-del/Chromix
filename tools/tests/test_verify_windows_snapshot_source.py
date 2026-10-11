@@ -421,3 +421,277 @@ def test_stage8_hop_publication_binds_current_identity_paths_and_hashes(tmp_path
         with pytest.raises((ValueError, OSError, verify.arp.ApplyError)):
             verify.publish_stage8_hop(hop)
         assert snapshot(hop) == before
+
+
+@pytest.fixture
+def fx155(tmp_path, monkeypatch):
+    fixture = Fixture(tmp_path, monkeypatch)
+    pins = verify.load_pins(fixture.previous, "windows")
+    core_sha, platform_sha = pins["UngoogledCommit"], pins["UngoogledWindowsCommit"]
+    put(fixture.core, "chromium_version.txt", verify.WINDOWS155_VERSION + "\n")
+    core_sha = commit(fixture.core)
+    data = (fixture.previous / "build/ungoogled-revisions.psd1").read_text()
+    data = data.replace(pins["UngoogledCommit"], core_sha).replace("153.0.8010.47", verify.WINDOWS155_VERSION)
+    put(fixture.previous, "build/ungoogled-revisions.psd1", data)
+    put(fixture.previous, "CHROMIUM_WINDOWS_VERSION", verify.WINDOWS155_VERSION + "\n")
+    manifest = json.loads((fixture.previous / "build/upstream-cache.json").read_bytes())
+    source = manifest["sources"]["windows"]
+    source.update(chromium_version=verify.WINDOWS155_VERSION, ungoogled_commit=core_sha,
+                  head_branch=verify.WINDOWS155_VERSION + "-1.1", run_id=verify.WINDOWS155_UPSTREAM_RUN_ID)
+    source["artifacts"]["x64"]["id"] = verify.WINDOWS155_UPSTREAM_ARTIFACT_ID
+    put(fixture.previous, "build/upstream-cache.json", json.dumps(manifest))
+    names = [f"patches/{index:04d}-fixture.patch" for index in range(224)]
+    put(fixture.previous, "patches/series", "\n".join(names) + "\n")
+    (fixture.previous / PATCH).unlink()
+    for index, name in enumerate(names):
+        put(fixture.previous, name, f"diff --git a/{SOURCE} b/{SOURCE}\n--- a/{SOURCE}\n+++ b/{SOURCE}\n"
+            f"@@ -1,3 +1,3 @@\n context\n-value{index} example.com\n+value{index + 1} example.com\n tail\n")
+    override = "patches/chromium155/" + Path(names[0]).name
+    original = (fixture.previous / names[0]).read_bytes()
+    replacement = original.replace(b"--- a/", b"index 1234567..abcdef0 100644\n--- a/", 1)
+    put(fixture.previous, override, replacement)
+    monkeypatch.setattr(verify.patch_selection, "CORE155", core_sha)
+    monkeypatch.setitem(verify.patch_selection.PLATFORM155_COMMITS, "windows", platform_sha)
+    monkeypatch.setattr(verify.patch_selection, "OVERRIDES155", {
+        Path(names[0]).name: (hashlib.sha256(original).hexdigest(), hashlib.sha256(replacement).hexdigest())})
+    fixture.sha = commit(fixture.previous)
+    monkeypatch.setattr(verify, "WINDOWS155_SHA", fixture.sha)
+    shutil.rmtree(fixture.repo)
+    shutil.copytree(fixture.previous, fixture.repo)
+    put(fixture.repo, "tools/verify_windows_snapshot_source.py", "# trusted fixture helper\n")
+    target = commit(fixture.repo)
+    for name, value in {"GITHUB_RUN_ID": "90001", "GITHUB_RUN_ATTEMPT": "2",
+                        "GITHUB_JOB": "build-2", "GITHUB_SHA": target}.items():
+        monkeypatch.setenv(name, value)
+    put(fixture.src, SOURCE, "context\nvalue224 blocked.test\ntail\n")
+    put(fixture.src, "chrome/VERSION", "MAJOR=155\nMINOR=0\nBUILD=8059\nPATCH=39\n")
+    original = ('target_cpu = "x64"\ntarget_os = "win"\nchrome_pgo_phase = 2\n'
+                'v8_metagen_libclang_so = "C:/donor/libclang.dll"\n'
+                'v8_metagen_libclang_bindings_dir = "C:/donor/site-packages"\n')
+    put(fixture.src, "out/Default/args.gn", original)
+    repo_identity, _, manifest = verify.upstream.identities(fixture.repo, "windows", "x64")
+    fixture.receipt.update(identity=repo_identity, manifest=manifest,
+                           original_args=verify.upstream.source_args(fixture.src, repo_identity))
+    monkeypatch.setattr(verify, "WINDOWS155_ORIGINAL_ARGS_SHA256", fixture.receipt["original_args"]["sha256"])
+    put(fixture.src, verify.upstream.MARKER, json.dumps(fixture.receipt))
+    args = original + (fixture.core / "flags.gn").read_text() + (fixture.repo / "build/args.windows.gn").read_text()
+    values = verify.upstream.parse_gn_assignments(args)
+    values["chrome_pgo_phase"] = "2"
+    put(fixture.src, "out/Default/args.gn", "\n".join(f"{k} = {v}" for k, v in values.items()) + "\n")
+    pins = verify.load_pins(fixture.repo, "windows")
+    key = verify._ready_key(fixture.repo, pins)
+    for name, value in {
+        ".chromix-source-unpacked": verify.WINDOWS155_VERSION, ".chromix-ungoogled-core": core_sha,
+        ".chromix-binaries-pruned": core_sha, ".chromix-domain-substituted": core_sha,
+        ".chromix-toolchain-ready": core_sha + "|" + platform_sha,
+        ".chromix-patches": key.rsplit("|", 1)[1], ".chromix-patch-selection": key.rsplit("|", 1)[1],
+        ".chromix-source-ready": key,
+    }.items():
+        put(fixture.src, name, value + "\n")
+    selected, _, _ = verify.arp._load(fixture.repo, fixture.core, fixture.tooling, "windows")
+    put(fixture.src, verify.arp.MARKER, verify.arp._json({
+        "schema_version": 1, "identity": selected, "identity_sha256": verify.arp._sha(verify.arp._json(selected)),
+        "outputs": {name: hashlib.sha256((fixture.src / name).read_bytes()).hexdigest() for name in (SOURCE, LITE)},
+    }))
+    return fixture
+
+
+def amend_target(fixture, monkeypatch):
+    git(fixture.repo, "add", ".")
+    git(fixture.repo, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+        "commit", "--amend", "--no-edit", "-q")
+    monkeypatch.setenv("GITHUB_SHA", git(fixture.repo, "rev-parse", "HEAD").decode().strip())
+
+
+def test_windows155_selected_stack_pgo2_and_read_only_current_consumer(fx155):
+    before = snapshot(fx155.work)
+    report = fx155.run()
+    assert report["profile"] == verify.WINDOWS155_PROFILE
+    assert report["version"] == "155.0.8059.39"
+    assert report["run"]["GITHUB_JOB"] == "build-2"
+    assert report["verification"]["patch_count"] == 224
+    assert report["verification"]["identity"]["selection"]["version"] == "155.0.8059.39"
+    assert report["changed_files"] == []
+    assert report == fx155.run()
+    assert snapshot(fx155.work) == before
+
+
+@pytest.mark.parametrize("name", sorted(verify.WINDOWS155_ALLOWED_CHANGES))
+@pytest.mark.parametrize("committed", [True, False])
+def test_windows155_runtime_allowlist_requires_committed_inputs(fx155, monkeypatch, name, committed):
+    put(fx155.repo, name, "# runtime-only change\n")
+    if committed:
+        amend_target(fx155, monkeypatch)
+        assert name in fx155.run()["repository_changed_files"]
+    else:
+        with pytest.raises((ValueError, verify.arp.ApplyError)):
+            fx155.run()
+
+
+@pytest.mark.parametrize("name", ["tools/linux_restored_generators.py", "tools/patch_selection.py",
+    ".github/workflows/fingerprint-contracts.yml", "build/windows/prepare-ungoogled.ps1", "build/args.windows.gn",
+    "CHROMIUM_WINDOWS_VERSION", "build/upstream-cache.json", "patches/chromium155/0000-fixture.patch",
+    "tools/tests/test_windows_metagen_bindings.py.bak", "tools/tests/test_windows_upstream_cache.py"])
+def test_windows155_never_allows_cross_branch_or_preparation_changes(fx155, monkeypatch, name):
+    put(fx155.repo, name, "unexpected committed change\n")
+    amend_target(fx155, monkeypatch)
+    with pytest.raises((ValueError, verify.arp.ApplyError)):
+        fx155.run()
+
+
+@pytest.mark.parametrize("mutation", ["pgo0", "receipt-pgo0", "runtime-dll", "runtime-bindings", "selection-marker",
+    "marker", "source", "lite", "receipt", "patch-receipt", "job", "run", "attempt", "target", "donor-run",
+    "grandchild", "previous-dirty", "progress", "cold"])
+def test_windows155_mismatches_fail_without_source_mutation(fx155, monkeypatch, mutation):
+    if mutation in ("pgo0", "runtime-dll", "runtime-bindings"):
+        path = fx155.src / "out/Default/args.gn"
+        old, new = {"pgo0": ("chrome_pgo_phase = 2", "chrome_pgo_phase = 0"),
+                    "runtime-dll": ("C:/donor/libclang.dll", "C:/runtime/libclang.dll"),
+                    "runtime-bindings": ("C:/donor/site-packages", "C:/runtime/site-packages")}[mutation]
+        path.write_text(path.read_text().replace(old, new))
+    elif mutation == "receipt-pgo0":
+        receipt = fx155.receipt
+        raw = receipt["original_args"]["text"].replace("chrome_pgo_phase = 2", "chrome_pgo_phase = 0")
+        receipt["original_args"].update(text=raw, bytes=len(raw.encode()), sha256=hashlib.sha256(raw.encode()).hexdigest(),
+                                        assignments=verify.upstream.parse_gn_assignments(raw))
+        put(fx155.src, verify.upstream.MARKER, json.dumps(receipt))
+    elif mutation in ("job", "run", "attempt", "target", "donor-run"):
+        key, value = {"job": ("GITHUB_JOB", "build-3"), "run": ("GITHUB_RUN_ID", ""),
+                      "attempt": ("GITHUB_RUN_ATTEMPT", "0"), "target": ("GITHUB_SHA", "a" * 40),
+                      "donor-run": ("GITHUB_RUN_ID", "38136799729")}[mutation]
+        monkeypatch.setenv(key, value)
+    elif mutation == "grandchild":
+        put(fx155.repo, "tools/install_windows_metagen_bindings.py", "# second commit\n")
+        monkeypatch.setenv("GITHUB_SHA", commit(fx155.repo))
+    elif mutation == "previous-dirty":
+        put(fx155.previous, "build/windows/prepare-ungoogled.ps1", "changed\n")
+    elif mutation == "cold":
+        (fx155.src / "out/Chromix").mkdir()
+    else:
+        name = {"selection-marker": ".chromix-patch-selection", "marker": ".chromix-source-ready", "source": SOURCE,
+                "lite": LITE, "receipt": verify.upstream.MARKER, "patch-receipt": verify.arp.MARKER,
+                "progress": ".chromix-layer-in-progress"}[mutation]
+        put(fx155.src, name, "{}\n")
+    before = snapshot(fx155.work)
+    with pytest.raises((ValueError, OSError, verify.arp.ApplyError)):
+        fx155.run()
+    assert snapshot(fx155.work) == before
+
+
+def test_windows155_allowlist_is_exact_and_does_not_expand_other_profiles():
+    assert verify.WINDOWS155_ALLOWED_CHANGES == frozenset({
+        ".github/actions/restore-windows-snapshot/action.yml", ".github/workflows/build-win-x64-github.yml",
+        "build/windows/ci-stage.ps1", "tools/verify_windows_snapshot_source.py",
+        "tools/install_windows_metagen_bindings.py", "tools/tests/test_windows_metagen_bindings.py",
+        "tools/tests/test_verify_windows_snapshot_source.py", "tools/tests/test_windows_snapshot_workflow.py"})
+    assert "tools/install_windows_metagen_bindings.py" not in verify.ALLOWED_CHANGES | verify.STAGE8_ALLOWED_CHANGES
+
+
+@pytest.mark.parametrize("ref", ["HEAD", verify.WINDOWS155_SHA])
+def test_windows155_full_donor_checkout_inputs_reject_later_linux_branch(tmp_path, monkeypatch, ref):
+    import io
+    import tarfile
+
+    monkeypatch.setattr(verify.identity, "WINDOWS", True)
+    previous, target = tmp_path / "previous", tmp_path / "target"
+    previous.mkdir()
+    if ref != "HEAD":
+        try:
+            git(ROOT, "cat-file", "-e", ref + "^{commit}")
+        except subprocess.CalledProcessError:
+            pytest.skip("exact donor object is absent from the shallow checkout")
+    payload = git(ROOT, "archive", ref)
+    with tarfile.open(fileobj=io.BytesIO(payload)) as archive:
+        archive.extractall(previous, filter="data")
+    commit(previous)
+    shutil.copytree(previous, target)
+    for name in verify.WINDOWS155_ALLOWED_CHANGES:
+        path = ROOT / name
+        if path.exists():
+            put(target, name, path.read_bytes())
+    commit(target)
+    program = verify.identity._host_git((previous, target))
+    _, old_tree = verify.identity._tree(program, previous)
+    _, new_tree = verify.identity._tree(program, target)
+    verify._inputs(previous, target, old_tree, new_tree, verify.WINDOWS155_ALLOWED_CHANGES)
+    assert verify._ready_key(previous, verify.load_pins(previous, "windows")) == (
+        "155.0.8059.39|ffeb45a2bb88bc56a1dfed31410aeb10e9efcd5a|"
+        "989b4382364baaddb8b3180e1eb1030ca96a7273|225dd1606daeaecb234598db5e5dc4c20b4665823d4cc3cf0105cba6436716bd")
+    name = "tools/linux_restored_generators.py"
+    put(target, name, (ROOT / name).read_bytes() + b"\n# disallowed Linux branch change\n")
+    commit(target)
+    _, changed_tree = verify.identity._tree(program, target)
+    with pytest.raises(ValueError, match="outside the allowlist"):
+        verify._inputs(previous, target, old_tree, changed_tree, verify.WINDOWS155_ALLOWED_CHANGES)
+
+
+@pytest.mark.parametrize("mutation", ["valid", "wrong-directory", "source-run", "source-target", "source-profile", "source-status",
+    "download-status", "download-phase", "download-publication", "download-artifact", "origin-job", "existing-report", "report-link"])
+def test_windows155_hop_publication_binds_current_identity_paths_and_hashes(tmp_path, monkeypatch, mutation):
+    consumer = {"GITHUB_RUN_ID": "90001", "GITHUB_RUN_ATTEMPT": "2", "GITHUB_JOB": "build-2", "GITHUB_SHA": "a" * 40}
+    for key, value in consumer.items():
+        monkeypatch.setenv(key, value)
+    hop = tmp_path / "fingerprint-diagnostics/recovery-hops/d38136799729-a1-s2-j114518496535" / ("c90001-a2-build-2-" + "a" * 40)
+    if mutation == "wrong-directory":
+        hop = hop.with_name("historical")
+    hop.mkdir(parents=True)
+    origin = {key: value for key, value in verify.WINDOWS155_DONOR.items() if key != "branch"}
+    origin.update(platform="windows", arch="x64", workflow="build-win-x64-github",
+                  pattern="tree-s2-attempt-1-part*", artifacts=verify.WINDOWS155_ARTIFACTS)
+    download = {**origin, "status": "success", "phase": "complete", "publication": "published"}
+    source = {"status": "verified", "operation": "windows-unchanged-source", "profile": verify.WINDOWS155_PROFILE,
+              "previous_sha": verify.WINDOWS155_SHA, "target_sha": consumer["GITHUB_SHA"], "run": consumer, "changed_files": []}
+    if mutation == "source-run":
+        source["run"] = {**consumer, "GITHUB_RUN_ID": "90000"}
+    elif mutation == "source-target":
+        source["target_sha"] = "b" * 40
+    elif mutation == "source-profile":
+        source["profile"] = "windows-153-x64-stage6"
+    elif mutation == "source-status":
+        source["status"] = "failed"
+    elif mutation.startswith("download-"):
+        key, value = {"download-status": ("status", "verified"), "download-phase": ("phase", "publish"),
+                      "download-publication": ("publication", "unconfirmed"), "download-artifact": ("artifacts", [])}[mutation]
+        download[key] = value
+    elif mutation == "origin-job":
+        origin["job_id"] += 1
+    for name, data in (("windows-snapshot.json", origin), ("windows-snapshot-download.json", download),
+                       ("windows-unchanged-source.json", source)):
+        put(hop, name, json.dumps(data))
+    if mutation == "existing-report":
+        put(hop, "recovery-hop.json", '{"status":"historical"}')
+    elif mutation == "report-link":
+        destination = put(tmp_path, "historical.json", "preserve\n")
+        (hop / "recovery-hop.json").symlink_to(destination)
+    before = snapshot(hop)
+    if mutation == "valid":
+        verify.publish_windows155_hop(hop)
+        report = json.loads((hop / "recovery-hop.json").read_bytes())
+        assert report["consumer"] == consumer
+        assert report["donor"] == verify.WINDOWS155_DONOR
+        for record in report["reports"].values():
+            assert record["sha256"] == hashlib.sha256((hop / record["path"]).read_bytes()).hexdigest()
+        for name, value in before.items():
+            assert snapshot(hop)[name] == value
+    else:
+        with pytest.raises((ValueError, OSError, verify.arp.ApplyError)):
+            verify.publish_windows155_hop(hop)
+        assert snapshot(hop) == before
+
+
+def test_windows155_shallow_consumer_still_checks_commit_parent(fx155):
+    (fx155.repo / ".git/shallow").write_text(os.environ["GITHUB_SHA"] + "\n")
+    assert fx155.run()["target_sha"] == os.environ["GITHUB_SHA"]
+
+
+def test_windows155_runtime_input_race_is_rejected(fx155, monkeypatch):
+    check = verify.stack.verify
+
+    def change_runtime_after_proof(*args, **kwargs):
+        proof = check(*args, **kwargs)
+        put(fx155.repo, "tools/verify_windows_snapshot_source.py", "# concurrent runtime edit\n")
+        return proof
+
+    monkeypatch.setattr(verify.stack, "verify", change_runtime_after_proof)
+    with pytest.raises(ValueError, match="inputs changed concurrently"):
+        fx155.run()
