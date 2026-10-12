@@ -11,6 +11,25 @@ import urllib.error
 import urllib.request
 
 LIMIT = 2 * 1024 * 1024
+LINUX155_ARM64_STAGE4_RUN = 38147746377
+LINUX155_ARM64_STAGE4_SHA = "e1263e2a52ea8eb7fa4f6c3a9a1930b92a8afe7e"
+LINUX155_ARM64_STAGE4_BRANCH = "build/chromium155-donors-20261011"
+LINUX155_ARM64_STAGE4_ARTIFACT = 11734746823
+LINUX155_ARM64_STAGE4_SIZE = 5307317175
+LINUX155_ARM64_STAGE4_DIGEST = "sha256:5f3bc2d96d45cc250f12b5da1a193b40dcf7c15f24e806c8628fb6b14d8c978c"
+
+
+def _validate_linux155_arm64_stage4(run, stage, attempt, platform, arch, artifacts):
+    if (platform, arch, stage, attempt) != ("linux", "arm64", 4, 1):
+        raise ValueError("Linux155 ARM64 recovery requires exact stage4 attempt1")
+    if (run.get("head_sha") != LINUX155_ARM64_STAGE4_SHA
+            or run.get("head_branch") != LINUX155_ARM64_STAGE4_BRANCH
+            or run.get("event") != "workflow_dispatch"):
+        raise ValueError("Linux155 ARM64 stage4 donor identity mismatch")
+    expected = [(LINUX155_ARM64_STAGE4_ARTIFACT, LINUX155_ARM64_STAGE4_SIZE,
+                 LINUX155_ARM64_STAGE4_DIGEST)]
+    if [(item["id"], item["size_in_bytes"], item["digest"]) for item in artifacts] != expected:
+        raise ValueError("Linux155 ARM64 stage4 artifact ID/size/SHA-256 mismatch")
 
 
 def positive(value: str, label: str) -> int:
@@ -129,6 +148,8 @@ def validate(client, repository: str, run_id: int, stage: int, attempt: int, arc
         by_part[suffix] = item
     if set(by_part) != {str(index) for index in range(1, len(artifacts) + 1)}:
         raise ValueError("snapshot parts are not contiguous")
+    if run_id == LINUX155_ARM64_STAGE4_RUN:
+        _validate_linux155_arm64_stage4(run, stage, attempt, platform, arch, artifacts)
     return {
         "repository": repository,
         "platform": platform, "workflow": workflow,

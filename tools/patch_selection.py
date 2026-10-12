@@ -17,6 +17,9 @@ except ImportError:
 VERSION = "154.0.8037.97"
 CORE = "37085e47cf580c815a30402917d350ce97399ded"
 MACOS154_CORE = "3e46b13825f808f0886e484d44532372655e5fe4"
+MACOS154_ADDITIONS_ROOT = "patches/chromium154-macos"
+MACOS154_ADDITIONS_MANIFEST = "build/patch-additions-macos154.json"
+MACOS154_ADDITIONS_SHA256 = "be73565822a8b4177e63ea16d6e5936d263fed0fbf011366b3fcda4ec7b9a8bd"
 PLATFORM_COMMITS = {
     "windows": "f03c33d7974af5b40f25b01984ded8418d60fbe4",
     "linux": "f1441a6efb4d79427d1a3180b1877bbbdb1af7aa",
@@ -57,6 +60,10 @@ PLATFORM155_COMMITS = {
     "linux": "025d99db1673a21992534551598b73ca79360762",
 }
 OVERRIDE155_ROOT = "patches/chromium155"
+LINUX155_ADDITIONS_ROOT = "patches/chromium155-linux"
+LINUX155_ADDITIONS_MANIFEST = "build/patch-additions-linux155.json"
+LINUX155_LEGACY_ADDITIONS_SHA256 = "28fb67c9207bfe6e9b8314a0e56856c5136cc6a98461ad826f9ad7e8c4fbe38f"
+LINUX155_ADDITIONS_SHA256 = "5480c06026cf67f27f23fc4bdff4122c294cb0a8a16c4b5dfd7865a72e6c6f1f"
 OVERRIDES155 = {
     "0031-third_party-blink-renderer-platform-graphics-image_data_buffer-cc.patch": (
         "8b86c52d9df1ba45db00a09b293070be90d9dbc7463244c8ddf525017d265b7f",
@@ -153,6 +160,60 @@ def validate_overrides(repo: Path, root: str = OVERRIDE_ROOT,
             raise SelectionError(f"changed Chromium {label} override: " + name)
 
 
+def linux155_additions(repo: Path) -> tuple[list[str], dict | None]:
+    manifest = repo / LINUX155_ADDITIONS_MANIFEST
+    directory = repo / LINUX155_ADDITIONS_ROOT
+    # Pre-addition donors have neither input; their exact commit is authenticated by migration.
+    if not manifest.exists() and not manifest.is_symlink():
+        if directory.exists() or directory.is_symlink():
+            raise SelectionError("Linux155 additions directory requires its pinned manifest")
+        return [], None
+    raw = read(repo, LINUX155_ADDITIONS_MANIFEST)
+    if digest(raw) not in (LINUX155_LEGACY_ADDITIONS_SHA256, LINUX155_ADDITIONS_SHA256):
+        raise SelectionError("changed Linux155 additions manifest")
+    additions = json.loads(raw)
+    if directory.is_symlink() or not directory.is_dir():
+        raise SelectionError("missing or linked Linux155 additions directory")
+    entries = additions["patches"]
+    if {path.name for path in directory.iterdir()} != {Path(entry["path"]).name for entry in entries}:
+        raise SelectionError("partial or unexpected Linux155 additions inventory")
+    for entry in entries:
+        if digest(read(repo, entry["path"])) != entry["sha256"]:
+            raise SelectionError("changed Linux155 addition: " + entry["path"])
+    return [entry["path"] for entry in entries], {
+        "schema_version": additions["schema_version"], "kind": additions["kind"],
+        "manifest": {"path": LINUX155_ADDITIONS_MANIFEST, "sha256": digest(raw)},
+        "patches": entries,
+    }
+
+
+def macos154_additions(repo: Path) -> tuple[list[str], dict | None]:
+    manifest = repo / MACOS154_ADDITIONS_MANIFEST
+    directory = repo / MACOS154_ADDITIONS_ROOT
+    # Pre-addition donors have neither input; their exact commit is authenticated by migration.
+    if not manifest.exists() and not manifest.is_symlink():
+        if directory.exists() or directory.is_symlink():
+            raise SelectionError("macOS154 additions directory requires its pinned manifest")
+        return [], None
+    raw = read(repo, MACOS154_ADDITIONS_MANIFEST)
+    if digest(raw) != MACOS154_ADDITIONS_SHA256:
+        raise SelectionError("changed macOS154 additions manifest")
+    additions = json.loads(raw)
+    if directory.is_symlink() or not directory.is_dir():
+        raise SelectionError("missing or linked macOS154 additions directory")
+    entries = additions["patches"]
+    if {path.name for path in directory.iterdir()} != {Path(entry["path"]).name for entry in entries}:
+        raise SelectionError("partial or unexpected macOS154 additions inventory")
+    for entry in entries:
+        if digest(read(repo, entry["path"])) != entry["sha256"]:
+            raise SelectionError("changed macOS154 addition: " + entry["path"])
+    return [entry["path"] for entry in entries], {
+        "schema_version": additions["schema_version"], "kind": additions["kind"],
+        "manifest": {"path": MACOS154_ADDITIONS_MANIFEST, "sha256": digest(raw)},
+        "patches": entries,
+    }
+
+
 def select(repo: Path, platform: str | None = None, *, src: Path | None = None,
            core: Path | None = None) -> tuple[dict, list[tuple[str, bytes]]]:
     """Return raw selected-byte identity and ordered (physical path, bytes)."""
@@ -182,7 +243,8 @@ def select(repo: Path, platform: str | None = None, *, src: Path | None = None,
     elif any((repo / name).exists() or (repo / name).is_symlink() for name in
              ("CHROMIUM_VERSION", "CHROMIUM_LINUX_VERSION", "CHROMIUM_WINDOWS_VERSION",
               "CHROMIUM_MACOS_VERSION", OVERRIDE_ROOT, MACOS152_OVERRIDE_ROOT,
-              OVERRIDE155_ROOT)):
+              OVERRIDE155_ROOT, LINUX155_ADDITIONS_ROOT, LINUX155_ADDITIONS_MANIFEST,
+              MACOS154_ADDITIONS_ROOT, MACOS154_ADDITIONS_MANIFEST)):
         raise SelectionError("patch version selection requires complete repository pins")
     version = pins["ChromiumVersion"] if pins else None
     macos152 = platform == "macos" and version == MACOS152_VERSION
@@ -258,6 +320,22 @@ def select(repo: Path, platform: str | None = None, *, src: Path | None = None,
         effective_series = "".join(
             line.replace(name, mapping[name], 1) if (name := line.split("#", 1)[0].strip()) else line
             for line in series.decode("utf-8").splitlines(keepends=True)).encode("utf-8")
+    if version == VERSION155 and platform == "linux":
+        additions, addition_identity = linux155_additions(repo)
+        if addition_identity is not None:
+            selected = [*selected, *additions]
+            if not effective_series.endswith(b"\n"):
+                effective_series += b"\n"
+            effective_series += "".join(name + "\n" for name in additions).encode("utf-8")
+            selection["additions"] = addition_identity
+    if version == VERSION and platform == "macos":
+        additions, addition_identity = macos154_additions(repo)
+        if addition_identity is not None:
+            selected = [*selected, *additions]
+            if not effective_series.endswith(b"\n"):
+                effective_series += b"\n"
+            effective_series += "".join(name + "\n" for name in additions).encode("utf-8")
+            selection["additions"] = addition_identity
     patches = [(name, read(repo, name)) for name in selected]
     identity = {"series_sha256": digest(effective_series),
                 "patches": [{"path": name, "sha256": digest(raw)} for name, raw in patches]}
