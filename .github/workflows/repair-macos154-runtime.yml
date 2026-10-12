@@ -54,10 +54,13 @@ jobs:
     env:
       ARCH: ${{ matrix.arch }}
       PROFILE: ${{ matrix.profile }}
-      WORK: ${{ runner.temp }}/chromix-build
-      EVIDENCE: ${{ runner.temp }}/chromix-runtime-evidence
       DONOR: ${{ github.workspace }}/.chromix-runtime-donor
     steps:
+      - name: Set isolated runtime paths
+        run: |
+          set -euo pipefail
+          echo "WORK=$RUNNER_TEMP/chromix-build" >> "$GITHUB_ENV"
+          echo "EVIDENCE=$RUNNER_TEMP/chromix-runtime-evidence" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
