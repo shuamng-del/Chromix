@@ -53,10 +53,12 @@ def source_data():
 
 
 def install_additions(repo):
-    shutil.copy2(ROOT / selection.LINUX155_ADDITIONS_MANIFEST,
-                 repo / selection.LINUX155_ADDITIONS_MANIFEST)
-    shutil.copytree(ROOT / selection.LINUX155_ADDITIONS_ROOT,
-                    repo / selection.LINUX155_ADDITIONS_ROOT)
+    raw = subprocess.run(["git", "-C", str(ROOT), "show",
+                          "12a501c7abe607552c49d5daaabf29d891dde9ae:" + selection.LINUX155_ADDITIONS_MANIFEST],
+                         check=True, capture_output=True).stdout
+    (repo / selection.LINUX155_ADDITIONS_MANIFEST).write_bytes(raw)
+    (repo / selection.LINUX155_ADDITIONS_ROOT).mkdir()
+    shutil.copy2(ROOT / PATCH, repo / PATCH)
 
 
 @pytest.fixture
@@ -68,17 +70,17 @@ def repo(tmp_path):
     return repo
 
 
-def test_current_checkout_requires_exact_single_addition():
-    manifest = selection.read(ROOT, selection.LINUX155_ADDITIONS_MANIFEST)
-    assert selection.digest(manifest) == selection.LINUX155_ADDITIONS_SHA256
+def test_historical_checkout_requires_exact_single_addition(repo):
+    manifest = selection.read(repo, selection.LINUX155_ADDITIONS_MANIFEST)
+    assert selection.digest(manifest) == selection.LINUX155_LEGACY_ADDITIONS_SHA256
     entries = json.loads(manifest)
     assert entries["chromium_version"] == selection.VERSION155
     assert entries["core_commit"] == selection.CORE155
     assert entries["platform_commit"] == selection.PLATFORM155_COMMITS["linux"]
     assert entries["patches"] == [{"path": PATCH, "sha256": selection.digest((ROOT / PATCH).read_bytes())}]
-    assert {p.name for p in (ROOT / selection.LINUX155_ADDITIONS_ROOT).iterdir()} == {Path(PATCH).name}
+    assert {p.name for p in (repo / selection.LINUX155_ADDITIONS_ROOT).iterdir()} == {Path(PATCH).name}
     assert not list((ROOT / "patches").glob("0225-*.patch"))
-    assert len(selection.select(ROOT, "linux")[1]) == 225
+    assert len(selection.select(repo, "linux")[1]) == 225
     assert PATCH.encode() not in (ROOT / "patches/series").read_bytes()
 
 
@@ -103,7 +105,7 @@ def test_historical_selection_and_key_are_preserved_before_typed_addition(repo):
     additions = current["selection"]["additions"]
     assert additions["kind"] == "linux155-managed-profile-controller-link"
     assert additions["manifest"] == {"path": selection.LINUX155_ADDITIONS_MANIFEST,
-                                     "sha256": selection.LINUX155_ADDITIONS_SHA256}
+                                     "sha256": selection.LINUX155_LEGACY_ADDITIONS_SHA256}
     for style, key in keys.items():
         old_key = selection.preparation_key(repo, "linux", style)
         assert old_key != key
@@ -352,7 +354,8 @@ def test_optional_independent_linux155_225_full_stack(tmp_path, source_data, sub
     assert (core / "chromium_version.txt").read_text().strip() == selection.VERSION155
     assert (core / "revision.txt").read_text().strip() == "1"
 
-    repo = clone_repo(tmp_path, additions=True)
+    repo = clone_repo(tmp_path, additions=False)
+    install_additions(repo)
     set_platform_pins(repo, "linux", selection.VERSION155, selection.CORE155,
                       selection.PLATFORM155_COMMITS["linux"])
     src = tmp_path / "src"
@@ -374,7 +377,7 @@ def test_optional_independent_linux155_225_full_stack(tmp_path, source_data, sub
     (tmp_path / "source-provenance.json").write_text(json.dumps(provenance, indent=2) + "\n")
     selected, patches = selection.select(repo, "linux", src=src, core=core)
     assert len(patches) == 225 and patches[-1][0] == PATCH
-    assert selected["selection"]["additions"]["manifest"]["sha256"] == selection.LINUX155_ADDITIONS_SHA256
+    assert selected["selection"]["additions"]["manifest"]["sha256"] == selection.LINUX155_LEGACY_ADDITIONS_SHA256
     entries = [entry for _, raw in patches for entry in arp.transform_patch(raw, set(), [])[1]]
     targets = {entry[0] for entry in entries}
     assert len(targets) == 168 and BUILD in targets

@@ -227,8 +227,10 @@ def check_selected_stacks(rep: Report, repo: Path, verbose: bool = False) -> Non
             with tempfile.TemporaryDirectory(prefix='chromix-selected-lint-') as temporary:
                 directory = Path(temporary)
                 names = []
-                for name, raw in patches:
-                    filename = Path(name).name
+                # Selection authenticates platform additions by manifest and digest;
+                # their identifiers need not be contiguous across platform-specific sets.
+                for position, (name, raw) in enumerate(patches, 1):
+                    filename = f"{position:04d}-" + Path(name).name
                     names.append(filename)
                     (directory / filename).write_bytes(raw)
                 (directory / 'series').write_text('\n'.join(names) + '\n', encoding='utf-8')

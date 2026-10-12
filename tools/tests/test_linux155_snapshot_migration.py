@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 
@@ -31,15 +32,30 @@ def test_production_policy_accepts_exact_donor_without_executing_it(tmp_path):
     fixtures.git(previous, "checkout", "--detach", migration.LINUX155_DONOR)
     old = arp.patch_selection.select(previous, "linux")
     assert arp._sha(arp._json(old[0])) == migration.LINUX155_OLD_IDENTITY
-    assert arp._sha((ROOT / SELECTOR).read_bytes()) == migration.LINUX155_NEW_SELECTOR
-    migration._same_inputs(previous, ROOT, "linux", "x64")
+    target = tmp_path / "reviewed-target"
+    shutil.copytree(previous, target, ignore=shutil.ignore_patterns(".git"))
+    for name in (migration.LINUX155_MANIFEST, migration.LINUX155_PATCH):
+        fixtures.put(target, name, subprocess.run(
+            ["git", "-C", str(ROOT), "show", migration.LINUX155_PNG_DONOR + ":" + name],
+            check=True, capture_output=True).stdout)
     assert len(old[1]) == 224
-    assert len(arp.patch_selection.select(ROOT, "linux")[1]) == 225
     assert arp.patch_selection.preparation_key(previous, "linux", "posix") == (
         "019d1bf9296d7e9b037bc5c34307ebc46cd1b1ba8f4cb31bdd2c80416d625cd5")
+    for ref, expected in ((migration.LINUX155_PNG_DONOR, migration.LINUX155_NEW_SELECTOR),
+                          ("6bd75f297c714492164cbde4cdf2eba70f3cbb6b", migration.MACOS154_NEW_SELECTOR),
+                          (None, migration.LINUX155_PNG_SELECTOR)):
+        raw = ((ROOT / SELECTOR).read_bytes() if ref is None else subprocess.run(
+            ["git", "-C", str(ROOT), "show", ref + ":" + SELECTOR],
+            check=True, capture_output=True).stdout)
+        assert arp._sha(raw) == expected
+        fixtures.put(target, SELECTOR, raw)
+        migration._same_inputs(previous, target, "linux", "x64")
+        assert len(arp.patch_selection.select(target, "linux")[1]) == 225
+    with pytest.raises(arp.ApplyError):
+        migration._same_inputs(previous, ROOT, "linux", "x64")
     fixtures.put(previous, SELECTOR, donor_file(SELECTOR) + b"\n")
     with pytest.raises(arp.ApplyError, match="selector hash"):
-        migration._same_inputs(previous, ROOT, "linux", "x64")
+        migration._same_inputs(previous, target, "linux", "x64")
 
 
 @pytest.fixture
@@ -67,7 +83,9 @@ def snapshot155(tmp_path, monkeypatch):
         (repo / arp.patch_selection.OVERRIDE155_ROOT).mkdir(parents=True)
         fixtures.series(repo, *patches)
     fixtures.put(fx.previous, SELECTOR, donor_file(SELECTOR))
-    fixtures.put(fx.repo, migration.LINUX155_MANIFEST, (ROOT / migration.LINUX155_MANIFEST).read_bytes())
+    fixtures.put(fx.repo, migration.LINUX155_MANIFEST, subprocess.run(
+        ["git", "-C", str(ROOT), "show", migration.LINUX155_PNG_DONOR + ":" + migration.LINUX155_MANIFEST],
+        check=True, capture_output=True).stdout)
     fixtures.put(fx.repo, migration.LINUX155_PATCH, (ROOT / migration.LINUX155_PATCH).read_bytes())
     monkeypatch.setattr(migration, "LINUX155_DONOR", fixtures.commit(fx.previous))
     identity, selected = arp.patch_selection.select(fx.previous, "linux")

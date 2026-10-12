@@ -247,6 +247,12 @@ jobs:
              [ "$SNAPSHOT_ATTEMPT" = 1 ] && [ "$SNAPSHOT_ARTIFACT_IDS" = 11718904327 ] &&
              [ "$RECOVERY_BRANCH" = build/linux155-stage2-controller-link ]; then
             RECOVERY_BRANCH=build/chromium155-donors-20261011
+          elif [ "$BUILD_PLATFORM" = linux ] && [ '${{ inputs.arch }}' = x64 ] &&
+               [ "$RECOVERY_EVENT" = workflow_dispatch ] &&
+               [ "$SNAPSHOT_RUN_ID" = 38204495350 ] && [ "$SNAPSHOT_STAGE" = 1 ] &&
+               [ "$SNAPSHOT_ATTEMPT" = 1 ] && [ "$SNAPSHOT_ARTIFACT_IDS" = 11733517946 ] &&
+               [ "$RECOVERY_BRANCH" = build/linux155-compiled-png-recovery ]; then
+            RECOVERY_BRANCH=build/linux155-stage2-controller-link
           fi
           python3 tools/validate_posix_snapshot.py --platform "$BUILD_PLATFORM" --arch '${{ inputs.arch }}' \
             --recovery-branch "$RECOVERY_BRANCH" \
