@@ -1,0 +1,21 @@
+{
+  "chromium_version": "154.0.8037.97",
+  "target": "chrome/browser/ui/startup/startup_browser_creator_impl.cc",
+  "source_url": "https://chromium.googlesource.com/chromium/src/+/154.0.8037.97/chrome/browser/ui/startup/startup_browser_creator_impl.cc",
+  "source_sha256": "afdf2a3861343f516b907482f9f1ce98d3f5743e5e6c40ad538867c4e64b74b2",
+  "upstream_commit": "7870c327159042185b6918a1c381775fbae37b56",
+  "upstream_review": "https://chromium-review.googlesource.com/c/chromium/src/+/8339987",
+  "upstream_bug": "547894779",
+  "upstream_diff_sha256": "6e3fd31afdaa6354291855b8028d515c48725629891bf0bb704b5e94457a51aa",
+  "change_lines_sha256": "8da285cde18e36c97ebe86a38246e30378fcaf8a1bebdc3a0bcb3aeb1bbd51fa",
+  "sections": [
+    [
+      24,
+      "#include \"chrome/browser/browser_process.h\"\n#include \"chrome/browser/custom_handlers/protocol_handler_registry_factory.h\"\n#include \"chrome/browser/defaults.h\"\n#include \"chrome/browser/first_run/first_run.h\"\n#include \"chrome/browser/headless/headless_command_processor.h\"\n#include \"chrome/browser/prefs/session_startup_pref.h\"\n#include \"chrome/browser/profiles/keep_alive/profile_keep_alive_types.h\"\n#include \"chrome/browser/profiles/keep_alive/scoped_profile_keep_alive.h\"\n#include \"chrome/browser/profiles/profile.h\"\n#include \"chrome/browser/profiles/profile_io_data.h\"\n#include \"chrome/browser/sessions/session_service.h\"\n"
+    ],
+    [
+      390,
+      "    // Headless mode is restricted to only one url in the command line, so\n    // just grab the first one assuming it's the target.\n    if (first_tab && process_headless_commands) {\n      std::unique_ptr<ScopedProfileKeepAlive> profile_keepalive;\n      if (!profile_->IsOffTheRecord()) {\n        profile_keepalive = std::make_unique<ScopedProfileKeepAlive>(\n            profile_, ProfileKeepAliveOrigin::kHeadlessCommand);\n      }\n      headless::ProcessHeadlessCommands(\n          profile_, tab.url,\n          base::BindOnce(\n              [](base::WeakPtr<BrowserWindowInterface> browser,\n                 std::unique_ptr<ScopedProfileKeepAlive> profile_keepalive,\n                 headless::HeadlessCommandHandler::Result result) {\n                if (browser && browser->GetWindow()) {\n#if BUILDFLAG(IS_MAC)\n                  // On Macs Chrome keeps running after the last browser\n                  // window is closed which is not expected for headless\n                  // command execution, so explicitly allow application\n                  // to terminate after the browser window is closed.\n                  app_controller_mac::AllowApplicationToTerminate();\n#endif\n                  browser->GetWindow()->Close();\n                }\n              },\n              browser->GetWeakPtr(), std::move(profile_keepalive)));\n      continue;\n    }\n    // Active tab overwrites apply only to one tab per launch, and can only\n    // happen if there is already a tab open to replace\n    if (first_tab && browser->GetTabStripModel()->count() &&\n        (is_active_tab_overwrite == TabOverWrite::kYes)) {\n"
+    ]
+  ]
+}

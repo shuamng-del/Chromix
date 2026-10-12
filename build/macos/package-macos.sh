@@ -40,6 +40,8 @@ if ! find "$FONTS_SRC" -maxdepth 1 -type f \( -iname '*.ttf' -o -iname '*.ttc' \
   exit 1
 fi
 
+python3 "$REPO/tools/verify_macos_bundle.py" --app "$APP" --arch "$ARCH"
+
 rm -rf "$STAGE"
 mkdir -p "$STAGE/fonts" "$DEST"
 cp -a "$REPO/LICENSE" "$STAGE/LICENSE.chromix"
@@ -64,6 +66,7 @@ rm -f "$ASSET"
   cd "$DEST"
   zip -X -q -r -y "$(basename "$ASSET")" chromix
 )
+python3 "$REPO/tools/verify_macos_bundle.py" --zip "$ASSET" --arch "$ARCH"
 HASH="$(shasum -a 256 "$ASSET" | awk '{print $1}')"
 (cd "$DEST" && shasum -a 256 chromix-*.zip > SHA256SUMS)
 printf '==> %s  sha256=%s\n' "$ASSET" "$HASH"

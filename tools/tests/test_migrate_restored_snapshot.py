@@ -112,6 +112,9 @@ class Fixture:
                 for field in ("ChromiumVersion", "UngoogledVersion", "UngoogledCommit"):
                     values[field] = values["MacOS" + field]
                     values.pop("Linux" + field)
+                if self.platform == "linux":
+                    values["ChromiumVersion"] = version
+                    values["UngoogledVersion"] = version + "-1"
                 values["UngoogledLinuxVersion"] = values["UngoogledVersion"]
                 put(repo, "CHROMIUM_VERSION", values["ChromiumVersion"] + "\n")
                 put(repo, "CHROMIUM_WINDOWS_VERSION", values["WindowsChromiumVersion"] + "\n")

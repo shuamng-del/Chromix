@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "kind": "macos154-headless-command-explicit-quit",
+  "chromium_version": "154.0.8037.97",
+  "core_commit": "3e46b13825f808f0886e484d44532372655e5fe4",
+  "platform_commit": "f7ba75f94442abda7ac3ea81790c217f8636d3ba",
+  "patches": [
+    {
+      "path": "patches/chromium154-macos/0226-headless-command-explicit-quit.patch",
+      "sha256": "ec1868b516e0ffea9366952f1e2d9c424aa2d5555b0e12d2bc456fd631d0ab73"
+    }
+  ]
+}

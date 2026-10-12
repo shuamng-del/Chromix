@@ -30,7 +30,7 @@ PREIMAGES = {
 
 @pytest.fixture
 def macos154_repo(tmp_path):
-    repo = clone_repo(tmp_path)
+    repo = clone_repo(tmp_path, additions=False)
     set_macos_pins(repo)
     return repo
 
@@ -213,3 +213,69 @@ def test_optional_independent_154_full_stack(tmp_path, macos154_repo, substitute
     assert report["status"] == "verified"
     assert report["patch_count"] == 224
     assert report["identity"]["selection"]["core_commit"] == CORE
+
+
+def test_current_macos_addition_is_isolated_and_keeps_historical_prefix(tmp_path):
+    repo = clone_repo(tmp_path)
+    old_repo = clone_repo(tmp_path / "historical", additions=False)
+    current, patches = selection.select(repo, "macos")
+    old, old_patches = selection.select(old_repo, "macos")
+    assert len(old_patches) == 224 and len(patches) == 225
+    assert patches[:-1] == old_patches
+    assert (repo / "patches/series").read_bytes() == (old_repo / "patches/series").read_bytes()
+    addition = current["selection"].pop("additions")
+    assert current["selection"] == old["selection"]
+    assert addition["kind"] == "macos154-headless-command-explicit-quit"
+    assert addition["manifest"] == {
+        "path": selection.MACOS154_ADDITIONS_MANIFEST,
+        "sha256": selection.MACOS154_ADDITIONS_SHA256,
+    }
+    assert addition["patches"] == current["patches"][-1:]
+    assert patches[-1][0] == "patches/chromium154-macos/0226-headless-command-explicit-quit.patch"
+    assert selection.digest(patches[-1][1]) == (
+        "ec1868b516e0ffea9366952f1e2d9c424aa2d5555b0e12d2bc456fd631d0ab73")
+    linux = selection.select(repo, "linux")
+    windows = selection.select(repo, "windows")
+    linux_key = selection.preparation_key(repo, "linux", "posix")
+    assert len(windows[1]) == 224
+    if "additions" in linux[0].get("selection", {}):
+        assert len(linux[1]) == 225
+        assert selection.digest(arp._json(linux[0])) == (
+            "5865eec63d8ecf9683a33406b42ce6557e3f7b37757c39a7fad1cac622e83396")
+    else:
+        assert len(linux[1]) == 224
+    shutil.rmtree(repo / selection.MACOS154_ADDITIONS_ROOT)
+    (repo / selection.MACOS154_ADDITIONS_MANIFEST).unlink()
+    assert selection.select(repo, "macos") == (old, old_patches)
+    assert selection.select(repo, "linux") == linux
+    assert selection.select(repo, "windows") == windows
+    assert selection.preparation_key(repo, "linux", "posix") == linux_key
+    for style in ("posix", "windows"):
+        assert selection.preparation_key(repo, "macos", style) == selection.preparation_key(
+            old_repo, "macos", style)
+
+
+@pytest.mark.parametrize("change", [
+    "manifest-missing", "manifest-changed", "manifest-symlink", "patch-missing", "patch-changed",
+    "patch-symlink", "directory-missing", "directory-symlink", "extra", "pins",
+])
+def test_current_macos_addition_inventory_fails_closed(tmp_path, change):
+    repo = clone_repo(tmp_path)
+    manifest = repo / selection.MACOS154_ADDITIONS_MANIFEST
+    directory = repo / selection.MACOS154_ADDITIONS_ROOT
+    patch = next(directory.iterdir())
+    if change == "extra":
+        (directory / "unexpected.patch").write_text("unexpected")
+    elif change == "pins":
+        (repo / "build/ungoogled-revisions.psd1").unlink()
+    else:
+        path = {"manifest": manifest, "patch": patch, "directory": directory}[change.split("-")[0]]
+        if change.endswith("changed"):
+            path.write_bytes(path.read_bytes() + b"\n")
+        else:
+            relative = path.relative_to(repo)
+            shutil.rmtree(path) if path.is_dir() else path.unlink()
+            if change.endswith("symlink"):
+                path.symlink_to(ROOT / relative, target_is_directory=change.startswith("directory"))
+    with pytest.raises(selection.SelectionError):
+        selection.select(repo, "macos")
