@@ -41,7 +41,7 @@ NEW_OVERRIDES = {
 
 @pytest.fixture(params=("linux", "windows"))
 def repo155(tmp_path, request):
-    repo = clone_repo(tmp_path)
+    repo = clone_repo(tmp_path, additions=False)
     platform = request.param
     set_platform_pins(repo, platform, VERSION, CORE, COMMITS[platform])
     return repo, platform

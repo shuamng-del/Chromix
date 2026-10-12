@@ -41,6 +41,23 @@ PLATFORM_TOOLING = {
     "linux": ("ungoogled-chromium-portablelinux", "UngoogledLinuxCommit"),
     "macos": ("ungoogled-chromium-macos", "UngoogledMacOSCommit"),
 }
+LINUX155_DONOR = "e1263e2a52ea8eb7fa4f6c3a9a1930b92a8afe7e"
+LINUX155_VERSION = "155.0.8059.39"
+LINUX155_CORE = "ffeb45a2bb88bc56a1dfed31410aeb10e9efcd5a"
+LINUX155_OVERLAY = "025d99db1673a21992534551598b73ca79360762"
+LINUX155_OLD_SELECTOR = "87d06a9ed672af8bfe1065d43d69140c142d1770287d1b82fb9c0e5d2fad4f11"
+LINUX155_NEW_SELECTOR = "9a706c5ec4aca59a1a06154fe7c592746f32c2c28571ee33a7c5d55fd523bb26"
+LINUX155_MANIFEST = "build/patch-additions-linux155.json"
+LINUX155_MANIFEST_SHA256 = "28fb67c9207bfe6e9b8314a0e56856c5136cc6a98461ad826f9ad7e8c4fbe38f"
+LINUX155_PATCH = "patches/chromium155-linux/0225-managed-profile-controller-link.patch"
+LINUX155_PATCH_SHA256 = "350b333232d5865d9dff93a32b1e7b9c2e16a0c1fd31479809a0fd9106db700a"
+LINUX155_OLD_IDENTITY = "9143bbdf713f7280f80d3225b7f0a4481f62a7682a4e41e62fe5cb38412235fe"
+LINUX155_PRESERVED = (
+    "build/prepare-ungoogled.sh", "build/apply-patches.sh",
+    "build/posix/prepare-restored-tools.sh", "tools/apply_restored_patches.py",
+    "tools/platform_pins.py", "tools/prepare_restored_build.py",
+    "tools/linux_restored_generators.py", "tools/install_linux_generators.py",
+)
 
 
 def _pins(repo: Path, platform: str) -> dict:
@@ -53,7 +70,68 @@ def _pins(repo: Path, platform: str) -> dict:
     return load_pins(repo, platform)
 
 
-def _same_inputs(previous: Path, repo: Path, platform: str = "linux") -> None:
+def _donor_git(previous: Path, repo: Path, *args: str) -> bytes:
+    program = _host_program("git", (previous, repo))
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    environment.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
+                       GIT_OPTIONAL_LOCKS="0", GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1",
+                       LC_ALL="C")
+    result = subprocess.run(
+        [program, "--no-pager", "-c", "core.fsmonitor=false", "-c",
+         "core.hooksPath=" + os.devnull, "-C", str(previous), *args],
+        env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, timeout=60, check=False)
+    if result.returncode:
+        raise arp.ApplyError("Linux155 migration cannot authenticate donor Git objects")
+    return result.stdout
+
+
+def _linux155_selector_transition(previous: Path, repo: Path, platform: str,
+                                  arch: str | None) -> None:
+    """Authenticate one historical selector as data; execute only the current selector."""
+    if (platform, arch) != ("linux", "x64"):
+        raise arp.ApplyError("Linux155 selector transition requires linux x64")
+    selector = "tools/patch_selection.py"
+    if (arp._sha(arp._read(previous, selector)) != LINUX155_OLD_SELECTOR
+            or arp._sha(arp._read(repo, selector)) != LINUX155_NEW_SELECTOR):
+        raise arp.ApplyError("Linux155 migration selector hash mismatch")
+    if _donor_git(previous, repo, "rev-parse", "HEAD").decode().strip() != LINUX155_DONOR:
+        raise arp.ApplyError("Linux155 migration requires exact donor HEAD")
+    pins = _pins(repo, platform)
+    if tuple(pins[key] for key in ("ChromiumVersion", "UngoogledCommit", "UngoogledLinuxCommit")) != (
+            LINUX155_VERSION, LINUX155_CORE, LINUX155_OVERLAY):
+        raise arp.ApplyError("Linux155 migration core/platform/version mismatch")
+    for name in (*LINUX155_PRESERVED, selector):
+        original = arp._read(previous, name)
+        if original != _donor_git(previous, repo, "cat-file", "blob", LINUX155_DONOR + ":" + name):
+            raise arp.ApplyError("Linux155 donor preparation bytes changed: " + name)
+        if name != selector and (original != arp._read(repo, name)
+                                 or original != arp._read(Path(__file__).resolve().parents[1], name)):
+            raise arp.ApplyError("Linux155 migration requires preserved preparation tooling: " + name)
+    manifest = arp._read(repo, LINUX155_MANIFEST)
+    patch = arp._read(repo, LINUX155_PATCH)
+    if (arp._sha(manifest) != LINUX155_MANIFEST_SHA256
+            or arp._sha(patch) != LINUX155_PATCH_SHA256):
+        raise arp.ApplyError("Linux155 migration addition hash mismatch")
+    old, old_patches = arp.patch_selection.select(previous, platform)
+    current, patches = arp.patch_selection.select(repo, platform)
+    if (len(old_patches) != 224 or len(patches) != 225
+            or patches != [*old_patches, (LINUX155_PATCH, patch)]
+            or arp._sha(arp._json(old)) != LINUX155_OLD_IDENTITY):
+        raise arp.ApplyError("Linux155 migration requires identical historical 224-patch prefix")
+    expected = dict(old["selection"], additions={
+        "schema_version": 1, "kind": "linux155-managed-profile-controller-link",
+        "manifest": {"path": LINUX155_MANIFEST, "sha256": LINUX155_MANIFEST_SHA256},
+        "patches": [{"path": LINUX155_PATCH, "sha256": LINUX155_PATCH_SHA256}],
+    })
+    if current["selection"] != expected:
+        raise arp.ApplyError("Linux155 migration selection identity changed")
+    if arp._read(previous, "patches/series") != arp._read(repo, "patches/series"):
+        raise arp.ApplyError("Linux155 migration must preserve root series bytes")
+
+
+def _same_inputs(previous: Path, repo: Path, platform: str = "linux",
+                 arch: str | None = None) -> None:
     for name in (*PIN_FILES, *SCRIPT_FILES):
         if name in {filename for _, filename in OVERRIDES.values()}:
             if name != OVERRIDES[platform][1]:
@@ -64,7 +142,10 @@ def _same_inputs(previous: Path, repo: Path, platform: str = "linux") -> None:
             if not all(path.is_file() for path in paths):
                 raise arp.ApplyError(f"migration requires identical pins/preparation tooling: {name}")
         if arp._read(previous, name) != arp._read(repo, name):
-            raise arp.ApplyError(f"migration requires identical pins/preparation tooling: {name}")
+            if name == "tools/patch_selection.py":
+                _linux155_selector_transition(previous, repo, platform, arch)
+            else:
+                raise arp.ApplyError(f"migration requires identical pins/preparation tooling: {name}")
     for name in SCRIPT_FILES:
         if arp._read(repo, name) != arp._read(Path(__file__).resolve().parents[1], name):
             raise arp.ApplyError(f"repository preparation tooling differs from running trusted checkout: {name}")
@@ -263,7 +344,7 @@ def migrate(workdir: Path | str, previous_repo: Path | str, repo: Path | str,
     for name in (TRANSACTION, arp.IN_PROGRESS):
         if _marker(src, name).exists():
             raise arp.ApplyError(f"in-progress/partial migration detected: {name}. {arp.CLEAN}")
-    _same_inputs(previous, repo, platform)
+    _same_inputs(previous, repo, platform, arch)
     old_receipt = restore.verify_restored(work, platform, arch, repo=previous)
     receipt = restore.verify_restored(work, platform, arch, repo=repo)
     if old_receipt != receipt:
@@ -325,7 +406,7 @@ def migrate(workdir: Path | str, previous_repo: Path | str, repo: Path | str,
         arp.run_apply(stage, repo, core, tooling, platform, program, check=True)
         after = arp._snapshot(stage, set(before))
         _unchanged(stage, stage_version)
-        _same_inputs(previous, repo, platform)
+        _same_inputs(previous, repo, platform, arch)
         _verify_tooling(work, repo, roots, platform)
         if (arp._load(previous, core, tooling, platform) != (old_identity, old_patches, old_lite)
                 or arp._load(repo, core, tooling, platform) != (identity, patches, lite)

@@ -11,10 +11,17 @@ from tools import patch_selection as selection
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def clone_repo(tmp_path: Path, *, historical: bool = False) -> Path:
+def clone_repo(tmp_path: Path, *, historical: bool = False, additions: bool = True) -> Path:
     repo = tmp_path / "repo"
     shutil.copytree(ROOT / "patches", repo / "patches")
+    # Pre-addition donor fixtures omit both the manifest and its directory.
+    directory = repo / selection.LINUX155_ADDITIONS_ROOT
+    if not additions and directory.exists():
+        shutil.rmtree(directory)
     (repo / "build").mkdir()
+    if additions:
+        shutil.copy2(ROOT / selection.LINUX155_ADDITIONS_MANIFEST,
+                     repo / selection.LINUX155_ADDITIONS_MANIFEST)
     for name in ("build/ungoogled-revisions.psd1", "CHROMIUM_VERSION",
                  "CHROMIUM_LINUX_VERSION", "CHROMIUM_WINDOWS_VERSION",
                  "CHROMIUM_MACOS_VERSION"):

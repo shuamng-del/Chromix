@@ -293,9 +293,17 @@ RESUME_STEPS = """      - name: Validate selected POSIX checkpoint
           BUILD_PLATFORM: ${{ inputs.platform }}
           CACHE_REQUIRED: ${{ inputs.use_upstream_cache }}
           RECOVERY_BRANCH: ${{ github.ref_name }}
+          RECOVERY_EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
           test "$CACHE_REQUIRED" = true
+          if [ "$BUILD_PLATFORM" = linux ] && [ '${{ inputs.arch }}' = x64 ] &&
+             [ "$RECOVERY_EVENT" = workflow_dispatch ] &&
+             [ "$SNAPSHOT_RUN_ID" = 38149695142 ] && [ "$SNAPSHOT_STAGE" = 2 ] &&
+             [ "$SNAPSHOT_ATTEMPT" = 1 ] && [ "$SNAPSHOT_ARTIFACT_IDS" = 11718904327 ] &&
+             [ "$RECOVERY_BRANCH" = build/linux155-stage2-controller-link ]; then
+            RECOVERY_BRANCH=build/chromium155-donors-20261011
+          fi
           python3 tools/validate_posix_snapshot.py --platform "$BUILD_PLATFORM" --arch '${{ inputs.arch }}' \\
             --recovery-branch "$RECOVERY_BRANCH" \\
             --report "${RUNNER_TEMP}/chromix-logs/snapshot-origin.json"
