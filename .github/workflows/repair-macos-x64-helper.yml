@@ -1,0 +1,346 @@
+name: repair-macos-x64-helper
+
+on:
+  workflow_dispatch:
+    inputs:
+      snapshot_artifact_ids:
+        description: 'Exact stage-2 checkpoint IDs from run 38165640844, job 114600052208, attempt 1'
+        type: string
+        required: true
+        default: '11719847390,11719568394'
+      feature_check:
+        description: 'Also run browser_feature_check after mandatory native smoke and fingerprint acceptance'
+        type: boolean
+        default: false
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: repair-macos-x64-helper-38165640844
+  cancel-in-progress: false
+
+env:
+  DEPOT_TOOLS_METRICS: '0'
+  DEPOT_TOOLS_COLLECT_METRICS: '0'
+  CHROMIX_BUILD_PROFILE: fast
+  CHROMIX_USE_UPSTREAM_CACHE: '1'
+  CHROMIUM_VERSION: '154.0.8037.97'
+
+jobs:
+  repair:
+    name: Repair only macOS 154 Intel helper and reaccept package
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'xiaozhou26/Chromix'
+    runs-on: macos-15-intel
+    timeout-minutes: 330
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Record native runner and orchestration revision
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/chromix-helper-evidence"
+          test "$(uname -s):$(uname -m)" = Darwin:x86_64
+          {
+            git rev-parse HEAD
+            uname -a
+            sw_vers
+            sysctl hw.ncpu hw.memsize
+            df -h
+          } 2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/runner.log"
+
+      - name: Validate exact failed-runtime checkpoint metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SNAPSHOT_ARTIFACT_IDS: ${{ inputs.snapshot_artifact_ids }}
+        run: |
+          set -euo pipefail
+          python3 tools/validate_macos_helper_checkpoint.py metadata \
+            --artifact-ids "$SNAPSHOT_ARTIFACT_IDS" \
+            --report "$RUNNER_TEMP/chromix-helper-evidence/snapshot-origin.json" \
+            2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/snapshot-origin.log"
+
+      # Definitions only: no script or Python module is executed from this checkout.
+      - name: Check out exact donor definitions read-only
+        uses: actions/checkout@v4
+        with:
+          ref: 4632c980d1154ff59243b97fa1b0b816d2440eaa
+          path: .chromix-helper-donor
+          persist-credentials: false
+
+      - name: Select compatible Xcode
+        run: bash build/macos/select-xcode.sh
+
+      - name: Free macOS disk space
+        run: |
+          set -euo pipefail
+          python3 build/macos/free-disk-space.py 2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/disk-cleanup.log"
+
+      - name: Inspect macOS toolchain
+        run: |
+          set -euo pipefail
+          {
+            sw_vers
+            xcode-select -p
+            xcodebuild -version
+            xcrun --sdk macosx --show-sdk-version
+            xcrun --sdk macosx --show-sdk-path
+          } 2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/xcode.log"
+
+      - name: Disable Spotlight indexing
+        run: |
+          set -euo pipefail
+          volume=/System/Volumes/Data
+          for attempt in 1 2 3; do
+            if sudo mdutil -i off "$volume"; then
+              echo "Requested indexing disable on $volume"
+            fi
+            if status=$(sudo mdutil -s "$volume"); then
+              printf '%s\n' "$status"
+              if printf '%s\n' "$status" | grep -Eq '^[[:space:]]*Indexing( and searching)? disabled\.[[:space:]]*$'; then
+                exit 0
+              fi
+            fi
+            if [ "$attempt" -lt 3 ]; then sleep 3; fi
+          done
+          echo "::error::Unable to verify Spotlight indexing is disabled on $volume"
+          exit 1
+
+      - name: Install macOS build tools
+        run: brew install ninja coreutils gpatch zstd
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.20.0'
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: false
+
+      - name: Verify Go version
+        run: |
+          go version
+          test "$(go env GOVERSION)" = go1.27.1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Verify complete Mac SDK contents
+        run: python3 tools/inspect_macos_sdk.py --report "$RUNNER_TEMP/chromix-helper-evidence/sdk-content.json"
+
+      - name: Download only the validated checkpoint
+        timeout-minutes: 65
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 tools/download_posix_snapshot.py \
+            --manifest "$RUNNER_TEMP/chromix-helper-evidence/snapshot-origin.json" \
+            --destination "$RUNNER_TEMP/chromix-helper-download" \
+            --report "$RUNNER_TEMP/chromix-helper-evidence/snapshot-download.json" \
+            2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/snapshot-download.log"
+
+      - name: Restore incremental tree without migration
+        run: |
+          set -euo pipefail
+          test ! -e "$RUNNER_TEMP/chromix-build"
+          python3 tools/restore_posix_snapshot.py \
+            "$RUNNER_TEMP/chromix-helper-download" "$RUNNER_TEMP/chromix-build" \
+            2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/restore.log"
+
+      - name: Verify producer receipt and unchanged donor-target source recipe
+        run: |
+          set -euo pipefail
+          python3 tools/validate_macos_helper_checkpoint.py source \
+            --repo "$GITHUB_WORKSPACE" --donor-repo "$GITHUB_WORKSPACE/.chromix-helper-donor" \
+            --workdir "$RUNNER_TEMP/chromix-build" \
+            --report "$RUNNER_TEMP/chromix-helper-evidence/source-before.json" \
+            2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/source-before.log"
+
+      - name: Select compile parallelism
+        run: python3 tools/build_resources.py --github-env
+
+      - name: Prepare restored native tools using the target orchestration
+        timeout-minutes: 65
+        run: |
+          set -euo pipefail
+          unset -- "${!DYLD_@}"
+          WORK="$RUNNER_TEMP/chromix-build"
+          gtimeout -k 2m 60m bash build/posix/prepare-restored-tools.sh "$WORK" macos x64 \
+            2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/prepare-restored.log"
+          python3 tools/validate_macos_helper_checkpoint.py source \
+            --repo "$GITHUB_WORKSPACE" --donor-repo "$GITHUB_WORKSPACE/.chromix-helper-donor" \
+            --workdir "$WORK" --baseline "$RUNNER_TEMP/chromix-helper-evidence/source-before.json" \
+            --report "$RUNNER_TEMP/chromix-helper-evidence/source-prepared.json" \
+            2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/source-prepared.log"
+
+      - name: Regenerate native GN graph without rewriting donor args
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          unset -- "${!DYLD_@}"
+          WORK="$RUNNER_TEMP/chromix-build"
+          SRC="$WORK/src"
+          OUT="$SRC/out/Default"
+          NINJA="$(python3 tools/restore_ninja.py --workdir "$WORK" --platform macos --arch x64)"
+          export NINJA
+          python3 tools/bootstrap_gn.py --src "$SRC" --out "$OUT" \
+            2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/gn-bootstrap.log"
+          (cd "$SRC" && "$OUT/gn" gen "$OUT" --fail-on-unused-args) \
+            2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/gn-gen.log"
+
+      - name: Repair only helper outputs
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          WORK="$RUNNER_TEMP/chromix-build"
+          NINJA="$(python3 tools/restore_ninja.py --workdir "$WORK" --platform macos --arch x64)"
+          python3 tools/repair_macos_helper_outputs.py --src "$WORK/src" --ninja "$NINJA" \
+            --arch x64 --version "$CHROMIUM_VERSION" --apply \
+            2> >(tee "$RUNNER_TEMP/chromix-helper-evidence/helper-repair.stderr" >&2) \
+            | tee "$RUNNER_TEMP/chromix-helper-evidence/helper-repair.json"
+
+      - name: Incrementally rebuild default helper and complete Chrome assembly
+        timeout-minutes: 100
+        run: |
+          set -euo pipefail
+          unset -- "${!DYLD_@}"
+          WORK="$RUNNER_TEMP/chromix-build"
+          OUT="$WORK/src/out/Default"
+          NINJA="$(python3 tools/restore_ninja.py --workdir "$WORK" --platform macos --arch x64)"
+          gtimeout -k 5m -s SIGTERM 90m "$NINJA" -C "$OUT" -j "$CHROMIX_JOBS" chrome_helper_app_default chrome \
+            2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/ninja.log"
+
+      - name: Verify final live source hashes
+        run: |
+          set -euo pipefail
+          python3 tools/validate_macos_helper_checkpoint.py source \
+            --repo "$GITHUB_WORKSPACE" --donor-repo "$GITHUB_WORKSPACE/.chromix-helper-donor" \
+            --workdir "$RUNNER_TEMP/chromix-build" \
+            --baseline "$RUNNER_TEMP/chromix-helper-evidence/source-before.json" \
+            --report "$RUNNER_TEMP/chromix-helper-evidence/source-final.json" \
+            2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/source-final.log"
+
+      - name: Package repaired app with structural and ZIP validation
+        run: |
+          set -euo pipefail
+          WORK="$RUNNER_TEMP/chromix-build"
+          python3 tools/verify_macos_bundle.py --app "$WORK/src/out/Default/Chromium.app" --arch x64 \
+            2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/bundle-before-package.log"
+          bash build/macos/package-macos.sh "$WORK/src/out/Default/Chromium.app" "$WORK/helper-dist" x64 \
+            2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/package.log"
+          (cd "$WORK/helper-dist" && shasum -a 256 -c SHA256SUMS)
+          python3 tools/verify_macos_bundle.py --zip "$WORK/helper-dist/chromix-mac-x64.zip" --arch x64 \
+            2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/bundle-zip.log"
+
+      - name: Extract the actual ZIP using the SDK extractor
+        run: |
+          set -euo pipefail
+          python3 - "$GITHUB_WORKSPACE" "$RUNNER_TEMP/chromix-build" <<'PY'
+          import importlib.util
+          from pathlib import Path
+          import sys
+          repo, work = map(Path, sys.argv[1:])
+          spec = importlib.util.spec_from_file_location("bundle_extract", repo / "sdk/python/chromix/_binary.py")
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          destination = work / "helper-smoke"
+          destination.mkdir()
+          module._extract_zip(work / "helper-dist/chromix-mac-x64.zip", destination)
+          PY
+          python3 tools/verify_macos_bundle.py \
+            --app "$RUNNER_TEMP/chromix-build/helper-smoke/chromix/Chromium.app" --arch x64 \
+            2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/bundle-extracted.log"
+
+      - name: Mandatory native version and sandboxed headless smoke
+        run: |
+          set -euo pipefail
+          unset -- "${!DYLD_@}"
+          python3 tools/macos_browser_smoke.py \
+            --launcher "$RUNNER_TEMP/chromix-build/helper-smoke/chromix/chromix" \
+            --output "$RUNNER_TEMP/chromix-helper-evidence/runtime-smoke" \
+            --profile "$RUNNER_TEMP/chromix-build/helper-smoke-profile" \
+            --chromium-version "$CHROMIUM_VERSION" \
+            2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/runtime-smoke.log"
+
+      - name: Mandatory fingerprint acceptance
+        timeout-minutes: 40
+        run: |
+          set -euo pipefail
+          unset -- "${!DYLD_@}"
+          gtimeout -k 15s 300s python3 -m pip install --disable-pip-version-check --timeout 30 --retries 1 \
+            -r tools/fingerprint-requirements.txt
+          BROWSER="$RUNNER_TEMP/chromix-build/helper-smoke/chromix/Chromium.app/Contents/MacOS/Chromium"
+          BROWSER_HASH="$(shasum -a 256 "$BROWSER" | awk '{print $1}')"
+          printf '%s  %s\n' "$BROWSER_HASH" "$BROWSER" | tee "$RUNNER_TEMP/chromix-helper-evidence/browser.sha256"
+          gtimeout -k 30s 2100s python3 tools/fingerprint_acceptance.py \
+            --browser "$BROWSER" --expected-sha256 "$BROWSER_HASH" --expected-version "$CHROMIUM_VERSION" \
+            --source-report "$RUNNER_TEMP/chromix-helper-evidence/source-final-target.json" \
+            --source-root "$RUNNER_TEMP/chromix-build/src" \
+            --output-dir "$RUNNER_TEMP/chromix-helper-evidence/fingerprint-acceptance" \
+            2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/fingerprint-acceptance.log"
+
+      - name: Optional feature regression checks
+        if: inputs.feature_check
+        timeout-minutes: 35
+        run: |
+          set -euo pipefail
+          unset -- "${!DYLD_@}"
+          gtimeout -k 30s 1800s python3 tools/browser_feature_check.py \
+            --browser "$RUNNER_TEMP/chromix-build/helper-smoke/chromix/Chromium.app/Contents/MacOS/Chromium" \
+            --output-dir "$RUNNER_TEMP/chromix-helper-evidence/feature-check" \
+            2>&1 | tee "$RUNNER_TEMP/chromix-helper-evidence/feature-check.log"
+
+      - name: Upload accepted repaired bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: chromix-mac-x64-helper-accepted-attempt-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/chromix-build/helper-dist/chromix-mac-x64.zip
+            ${{ runner.temp }}/chromix-build/helper-dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload failed repaired bundle evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chromix-mac-x64-helper-failed-attempt-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/chromix-build/helper-dist/chromix-mac-x64.zip
+            ${{ runner.temp }}/chromix-build/helper-dist/SHA256SUMS
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload source hashes and all repair/runtime diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chromix-mac-x64-helper-evidence-attempt-${{ github.run_attempt }}
+          include-hidden-files: true
+          path: |
+            ${{ runner.temp }}/chromix-helper-evidence/
+            ${{ runner.temp }}/chromix-build/upstream-cache-preparation.json
+            ${{ runner.temp }}/chromix-build/upstream-cache-ninja.json
+            ${{ runner.temp }}/chromix-build/src/out/Default/args.gn
+            ${{ runner.temp }}/chromix-build/src/.chromix-source-ready
+            ${{ runner.temp }}/chromix-build/src/out/Default/.chromix-macos-helper-repair.json
+            ${{ runner.temp }}/chromix-build/src/.chromix-upstream-restored.json
+            ${{ runner.temp }}/chromix-build/src/.chromix-restored-build-prepared.json
+            ${{ runner.temp }}/chromix-build/fingerprint-diagnostics/source-final.json
+            ${{ runner.temp }}/chromix-build/runtime-smoke-stage-2/
+          if-no-files-found: warn
+          retention-days: 14
