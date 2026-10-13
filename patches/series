@@ -190,3 +190,4 @@ patches/0188-restricted-font-last-resort-skia.patch
 patches/0189-restricted-font-last-resort-mac.patch
 patches/0190-restricted-local-font-enumeration.patch
 patches/0191-snapshot-utf8-font-families.patch
+patches/0192-suppress-bad-flags-warning.patch
