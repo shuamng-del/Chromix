@@ -1486,3 +1486,4 @@ jobs:
             *true*) echo "Build finished; chromix-win-x64 artifact uploaded." ;;
             *) echo "Build did not finish within 12 stages."; exit 1 ;;
           esac
+# fork-build marker: register this workflow on the fork
